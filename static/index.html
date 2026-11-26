@@ -340,6 +340,12 @@
       scrollbar-width: thin;
       scrollbar-color: rgba(214, 155, 76, 0.3) transparent;
     }
+    .messages-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+    }
 
     .empty-state {
       margin: auto;
@@ -724,6 +730,7 @@
           </button>
         </div>
       </div>
+      <div id="messagesContainer" class="messages-container"></div>
     </main>
 
     <footer class="composer-wrap">
@@ -783,6 +790,9 @@
 
     const viewport = document.getElementById("chatViewport");
     const emptyState = document.getElementById("emptyState");
+    const messagesContainer = document.getElementById("messagesContainer");
+    const greetingTitle = document.getElementById("greetingTitle");
+    const greetingLanguage = document.getElementById("greetingLanguage");
     const form = document.getElementById("chatForm");
     const input = document.getElementById("promptInput");
     const sendBtn = document.getElementById("sendBtn");
@@ -824,8 +834,8 @@
         next = (next + 1 + Math.floor(Math.random() * (greetings.length - 1))) % greetings.length;
       }
       previousGreeting = next;
-      document.getElementById("greetingTitle").textContent = greetings[next].text;
-      document.getElementById("greetingLanguage").textContent = greetings[next].language;
+      greetingTitle.textContent = greetings[next].text;
+      greetingLanguage.textContent = greetings[next].language;
     }
 
     const orbCanvas = document.getElementById("orbCanvas");
@@ -948,7 +958,6 @@
       appShell.classList.remove("hidden");
       roleBadge.textContent = role;
       adminBtn.classList.toggle("hidden", role !== "admin");
-      requestAnimationFrame(resizeOrb);
       renderChat();
     }
 
@@ -1076,9 +1085,9 @@
         : "Window: Last 6 msgs";
 
       if (!messages.length) {
-        viewport.innerHTML = "";
-        viewport.appendChild(emptyState);
+        messagesContainer.innerHTML = "";
         emptyState.style.display = "block";
+        resizeOrb();
         return;
       }
 
@@ -1109,8 +1118,8 @@
         frag.appendChild(row);
       });
 
-      viewport.innerHTML = "";
-      viewport.appendChild(frag);
+      messagesContainer.innerHTML = "";
+      messagesContainer.appendChild(frag);
       viewport.scrollTop = viewport.scrollHeight;
     }
 
