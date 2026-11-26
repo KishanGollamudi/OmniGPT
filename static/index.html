@@ -415,7 +415,7 @@
               if (json.error) {
                 messages[messages.length - 1].content += `\n**Stream Error:** ${json.error}`;
               } else {
-                const delta = json.choices?.[0]?.delta?.content || "";
+                const delta = json.token ?? json.choices?.[0]?.delta?.content ?? "";
                 messages[messages.length - 1].content += delta;
               }
               renderChat();
