@@ -11,18 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # ==============================================================================
-# SERVER-LOCKED UPSTREAM CONFIGURATION (Not exposed or overridable in the UI)
+# SERVER-LOCKED GROQ CONFIGURATION (Not exposed or overridable in the UI)
 # ==============================================================================
-# Configure via Render Environment Variables (or server defaults):
-#   LLM_ENDPOINT_URL : e.g. "https://api.groq.com/openai/v1" or your ngrok URL
-#   LLM_API_KEY      : Bearer token for hosted APIs (leave empty for Ollama/ngrok)
-#   LLM_MODEL        : e.g. "openai/gpt-oss-20b"
-#   API_PIN          : Optional server-side PIN required via X-API-PIN header
 LOCKED_ENDPOINT_URL = os.getenv(
     "LLM_ENDPOINT_URL", "https://api.groq.com/openai/v1"
 ).strip()
 LOCKED_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-LOCKED_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b").strip()
+LOCKED_MODEL = "openai/gpt-oss-20b"
 API_PIN = os.getenv("API_PIN", "").strip()
 
 RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "6"))
@@ -77,7 +72,7 @@ def verify_pin(x_api_pin: str | None) -> None:
 def normalize_chat_completions_url(raw_url: str | None) -> str:
     candidate = (raw_url or "").strip().rstrip("/")
     if not candidate:
-        raise HTTPException(status_code=500, detail="Server LLM endpoint URL is not set")
+        return "https://api.groq.com/openai/v1/chat/completions"
     if candidate.endswith("/v1/chat/completions"):
         return candidate
     if candidate.endswith("/v1"):
@@ -88,7 +83,6 @@ def normalize_chat_completions_url(raw_url: str | None) -> str:
 def build_upstream_headers() -> dict[str, str]:
     headers: dict[str, str] = {
         "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
     }
     if LOCKED_API_KEY:
         headers["Authorization"] = f"Bearer {LOCKED_API_KEY}"
