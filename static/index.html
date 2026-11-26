@@ -3,394 +3,660 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OmniGPT</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/base16/kimbie-dark.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <title>OmniGPT // Terminal</title>
   <style>
     :root {
-      --bg-main: #221a0f;
-      --bg-panel: #2b2114;
-      --bg-input: #1a140c;
-      --border-warm: #4a3822;
-      --text-main: #d3af86;
-      --text-muted: #9e7850;
-      --accent: #f79a32;
-      --accent-hover: #e28620;
+      --bg-base: #221a0f;
+      --bg-surface: #2b2114;
+      --bg-elevated: #362919;
+      --bg-user: #3b2b18;
+      --border-subtle: rgba(214, 155, 76, 0.22);
+      --border-strong: rgba(235, 178, 88, 0.42);
+      --text-primary: #f3e5cc;
+      --text-secondary: #cbb593;
+      --text-muted: #988162;
+      --accent-amber: #e59a3c;
+      --accent-gold: #f5be58;
+      --accent-rust: #c85a32;
+      --danger-bg: rgba(200, 90, 50, 0.16);
+      --danger-border: rgba(224, 106, 62, 0.45);
+      --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
-    body {
-      background-color: var(--bg-main);
-      color: var(--text-main);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
-    .panel {
-      background-color: var(--bg-panel);
-      border-color: var(--border-warm);
+
+    html, body {
+      height: 100%;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
     }
-    .input-box {
-      background-color: var(--bg-input);
-      border-color: var(--border-warm);
+
+    .app-shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100dvh;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 18px;
     }
-    .accent {
-      color: var(--accent);
+
+    /* Top Bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-wrap: wrap;
     }
-    .btn-accent {
-      background-color: var(--accent);
-      color: #221a0f;
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    .btn-accent:hover {
-      background-color: var(--accent-hover);
+
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(229, 154, 60, 0.24), rgba(200, 90, 50, 0.22));
+      border: 1px solid var(--border-strong);
+      color: var(--accent-gold);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 13px;
     }
-    .prose pre {
-      background: #17110a !important;
-      border: 1px solid var(--border-warm);
-      padding: 0.85rem;
-      border-radius: 0.5rem;
-      overflow-x: auto;
-      margin: 0.6rem 0;
+
+    .brand-title {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
     }
-    .prose code {
-      color: var(--accent);
-      font-size: 0.875em;
+
+    .brand-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
     }
-    .prose pre code {
-      color: #e6c8a5;
+
+    .telemetry {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
-    .prose p {
-      margin-bottom: 0.65rem;
+
+    .pill {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .pill-gold {
+      color: var(--accent-gold);
+      border-color: rgba(245, 190, 88, 0.28);
+    }
+
+    .btn {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--bg-elevated);
+      border-color: var(--border-strong);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(180deg, var(--accent-gold), var(--accent-amber));
+      color: #1d1409;
+      border-color: transparent;
+      font-weight: 700;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.05);
+      border-color: transparent;
+    }
+
+    .btn-stop {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: #f6b296;
+    }
+
+    /* Chat Stream */
+    .chat-viewport {
+      overflow-y: auto;
+      padding: 22px 2px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(214, 155, 76, 0.3) transparent;
+    }
+
+    .empty-state {
+      margin: auto;
+      max-width: 580px;
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 24px;
+    }
+
+    .empty-state h1 {
+      font-family: var(--font-mono);
+      font-size: 17px;
+      color: var(--accent-gold);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .quick-prompts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .prompt-chip {
+      text-align: left;
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.45;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .prompt-chip:hover {
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
+    }
+
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 86%;
+      gap: 6px;
+    }
+
+    .msg-row.user {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .msg-row.assistant {
+      align-self: flex-start;
+      align-items: flex-start;
+      max-width: 92%;
+    }
+
+    .msg-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 0 4px;
+    }
+
+    .bubble {
+      padding: 13px 16px;
+      border-radius: 12px;
+      font-size: 14px;
       line-height: 1.6;
+      word-break: break-word;
     }
-    .prose p:last-child {
+
+    .msg-row.user .bubble {
+      background: var(--bg-user);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      white-space: pre-wrap;
+    }
+
+    .msg-row.assistant .bubble {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+    }
+
+    .thinking-dots::after {
+      content: " ...";
+      animation: pulseDots 1.2s infinite steps(3, end);
+      color: var(--accent-amber);
+      font-family: var(--font-mono);
+    }
+
+    @keyframes pulseDots {
+      0% { content: " ."; }
+      50% { content: " .."; }
+      100% { content: " ..."; }
+    }
+
+    .bubble p {
+      margin-bottom: 10px;
+    }
+
+    .bubble p:last-child {
       margin-bottom: 0;
     }
-    .prose ul, .prose ol {
-      margin-left: 1.35rem;
-      margin-bottom: 0.65rem;
-      list-style: revert;
+
+    .bubble code.inline-code {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: rgba(20, 14, 7, 0.72);
+      border: 1px solid rgba(214, 155, 76, 0.2);
+      color: var(--accent-gold);
     }
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+
+    .code-block {
+      margin: 12px 0;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      background: #171109;
     }
-    ::-webkit-scrollbar-thumb {
-      background: #4a3822;
-      border-radius: 3px;
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: #241a0e;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .copy-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--accent-gold);
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--border-strong);
+    }
+
+    .code-block pre {
+      padding: 12px 14px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #f5ead6;
+    }
+
+    .error-banner {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      color: #ffbe9e;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
+    /* Composer */
+    .composer-wrap {
+      padding: 12px 0 18px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-base);
+    }
+
+    .composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 10px 12px;
+      transition: border-color 0.15s ease;
+    }
+
+    .composer:focus-within {
+      border-color: var(--border-strong);
+    }
+
+    textarea#promptInput {
+      flex: 1;
+      resize: none;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      line-height: 1.5;
+      max-height: 220px;
+      min-height: 24px;
+    }
+
+    textarea#promptInput::placeholder {
+      color: var(--text-muted);
+    }
+
+    .composer-hint {
+      margin-top: 7px;
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 640px) {
+      .app-shell {
+        padding: 0 12px;
+      }
+      .msg-row {
+        max-width: 95%;
+      }
+      .composer-hint {
+        flex-direction: column;
+        gap: 2px;
+      }
     }
   </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden">
-
-  <!-- Top Bar -->
-  <header class="panel border-b px-4 py-2.5 flex items-center justify-between gap-3 text-xs shrink-0">
-    <div class="flex items-center gap-3 min-w-0">
-      <span class="font-bold text-sm accent tracking-wide">&gt;_ OmniGPT</span>
-      <span id="tokenBadge" class="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full input-box border text-[#b58b5e]">
-        Tokens saved: ~0
-      </span>
-      <span id="summaryStatus" class="hidden md:inline text-[#8a6540] truncate">
-        Window: Last 6 msgs
-      </span>
-    </div>
-    <div class="flex items-center gap-2 shrink-0">
-      <button onclick="openEndpointModal()" class="px-2.5 py-1 rounded input-box border text-[#c7a176] hover:border-[#f79a32] hover:text-[#f79a32] transition">
-        Endpoint
-      </button>
-      <button onclick="clearChat()" class="px-2.5 py-1 rounded input-box border text-[#c7a176] hover:border-[#dc3958] hover:text-[#dc3958] transition">
-        New Chat
-      </button>
-    </div>
-  </header>
-
-  <!-- Chat Viewport -->
-  <main id="chatViewport" class="flex-1 overflow-y-auto px-4 py-6">
-    <!-- Welcome / Greeting Screen -->
-    <div id="welcomeScreen" class="max-w-3xl mx-auto min-h-full flex flex-col justify-center items-center text-center py-6">
-      <div class="w-12 h-12 rounded-xl panel border flex items-center justify-center text-xl font-bold accent mb-4 shadow-sm">
-        &gt;_
-      </div>
-      <h1 id="greetingTitle" class="text-2xl sm:text-3xl font-bold text-[#edd2b2] mb-2">
-        Ready when you are.
-      </h1>
-      <p class="text-xs sm:text-sm text-[#9e7850] max-w-lg mb-7 leading-relaxed">
-        Direct, low-token assistant built for fast, accurate answers. Sends only a compact summary plus recent turns so outputs stay sharp and complete.
-      </p>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-2xl text-left text-xs">
-        <button onclick="useStarter('Give me a fast, structured checklist to debug a Kubernetes pod stuck in CrashLoopBackOff.')"
-          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
-          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Kubernetes CrashLoopBackOff</div>
-          <div class="text-[#8a6540]">Fast diagnostic checklist &amp; commands</div>
-        </button>
-        <button onclick="useStarter('Write a clean, production-ready Python utility with type hints and error handling for: ')"
-          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
-          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Production Python Utility</div>
-          <div class="text-[#8a6540]">Clean code with proper error handling</div>
-        </button>
-        <button onclick="useStarter('Review this setup/config and point out bottlenecks, failure modes, and quick improvements: ')"
-          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
-          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Architecture &amp; Config Review</div>
-          <div class="text-[#8a6540]">Spot bottlenecks &amp; high-impact fixes</div>
-        </button>
-        <button onclick="useStarter('Explain this clearly and concisely with a practical example: ')"
-          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
-          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Clear Technical Breakdown</div>
-          <div class="text-[#8a6540]">Direct explanation with a concrete example</div>
-        </button>
-      </div>
-    </div>
-
-    <!-- Active Messages -->
-    <div id="chatBox" class="max-w-3xl mx-auto space-y-4 hidden"></div>
-  </main>
-
-  <!-- Composer -->
-  <footer class="panel border-t px-4 py-3 shrink-0">
-    <form id="chatForm" onsubmit="sendMessage(event)" class="max-w-3xl mx-auto flex items-end gap-2.5">
-      <textarea id="promptInput" rows="1" placeholder="Type hello or ask anything... (Enter to send, Shift+Enter for newline)"
-        class="flex-1 px-3.5 py-2.5 rounded-lg input-box border text-sm text-[#edd2b2] placeholder-[#785736] focus:outline-none focus:border-[#f79a32] resize-none max-h-40"></textarea>
-      <button id="sendBtn" type="submit" class="px-5 py-2.5 rounded-lg font-bold text-sm btn-accent shrink-0 transition">
-        Send
-      </button>
-    </form>
-  </footer>
-
-  <!-- Optional Endpoint Override Modal -->
-  <div id="endpointModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center p-4 z-50">
-    <div class="panel border rounded-xl w-full max-w-md p-5 space-y-4 text-xs shadow-2xl">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-bold accent">Endpoint Override (Optional)</h2>
-        <button onclick="closeEndpointModal()" class="text-[#9e7850] hover:text-[#edd2b2]">✕</button>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">&gt;_</div>
+        <div>
+          <div class="brand-title">OmniGPT</div>
+          <div class="brand-sub">DevOps &amp; SRE Console</div>
+        </div>
       </div>
 
-      <div>
-        <label class="block text-[#b58b5e] mb-1">Override Base URL</label>
-        <input id="endpointUrl" type="text" placeholder="Uses server default if blank"
-          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+      <div class="telemetry">
+        <span id="tokenBadge" class="pill pill-gold">Tokens saved: ~0</span>
+        <span id="summaryStatus" class="pill">Window: Last 6 msgs</span>
+        <button id="stopBtn" class="btn btn-stop" type="button" style="display: none;">Stop</button>
+        <button id="newChatBtn" class="btn" type="button">New Chat</button>
       </div>
+    </header>
 
-      <div>
-        <label class="block text-[#b58b5e] mb-1">Model</label>
-        <input id="modelName" type="text" value="qwen2.5:14b-instruct-q4_K_M"
-          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+    <main id="chatViewport" class="chat-viewport">
+      <div id="emptyState" class="empty-state">
+        <h1>&gt;_ Ready for Terminal &amp; SRE Diagnostics</h1>
+        <p>
+          Paste logs, <code>kubectl</code> output, Docker/Terraform errors, or CI/CD failures.
+          Conversations keep a recent message window plus a rolling summary to stay fast and lean.
+        </p>
+        <div class="quick-prompts">
+          <button class="prompt-chip" type="button" data-prompt="Diagnose a Kubernetes pod stuck in CrashLoopBackOff and give the exact kubectl commands to inspect logs and events.">
+            Pod CrashLoopBackOff triage checklist
+          </button>
+          <button class="prompt-chip" type="button" data-prompt="Write a concise one-liner or short shell check to find top CPU/memory processes and disk usage on Linux.">
+            Linux CPU, RAM &amp; disk quick check
+          </button>
+          <button class="prompt-chip" type="button" data-prompt="Explain how to debug a 502 Bad Gateway behind an ingress/reverse proxy step by step.">
+            502 Bad Gateway root-cause steps
+          </button>
+        </div>
       </div>
+    </main>
 
-      <div>
-        <label class="block text-[#b58b5e] mb-1">Access PIN (if enabled on server)</label>
-        <input id="accessPin" type="password" placeholder="Leave blank if none"
-          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+    <footer class="composer-wrap">
+      <form id="chatForm" class="composer">
+        <textarea
+          id="promptInput"
+          rows="1"
+          placeholder="Paste terminal output or ask a DevOps / SRE question..."
+          required
+        ></textarea>
+        <button id="sendBtn" class="btn btn-primary" type="submit">Send</button>
+      </form>
+      <div class="composer-hint">
+        <span>Enter to send · Shift+Enter for new line</span>
+        <span>Server-managed model &amp; endpoint</span>
       </div>
-
-      <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeEndpointModal()" class="px-3.5 py-2 rounded input-box border text-[#b58b5e]">
-          Cancel
-        </button>
-        <button type="button" onclick="saveEndpointConfig()" class="px-4 py-2 rounded font-bold btn-accent">
-          Save
-        </button>
-      </div>
-    </div>
+    </footer>
   </div>
 
   <script>
-    marked.setOptions({
-      highlight: (code, lang) => {
-        if (lang && hljs.getLanguage(lang)) {
-          return hljs.highlight(code, { language: lang }).value;
-        }
-        return hljs.highlightAuto(code).value;
-      }
+    const STORAGE_KEYS = {
+      messages: "omnigpt_v2_messages",
+      summary: "omnigpt_v2_summary",
+      saved: "omnigpt_v2_tokens_saved"
+    };
+
+    // Clean up legacy endpoint override keys if present from older versions
+    ["ogpt_endpoint_url", "ogpt_model", "ogpt_pin", "endpoint_url", "model"].forEach(k => {
+      try { localStorage.removeItem(k); } catch (_) {}
     });
 
-    let messages = JSON.parse(localStorage.getItem("ogpt_messages") || "[]");
-    let rollingSummary = localStorage.getItem("ogpt_summary") || "";
-    let totalTokensSaved = parseInt(localStorage.getItem("ogpt_saved") || "0", 10);
+    let messages = loadMessages();
+    let rollingSummary = localStorage.getItem(STORAGE_KEYS.summary) || "";
+    let totalTokensSaved = Number(localStorage.getItem(STORAGE_KEYS.saved) || "0") || 0;
+    let activeController = null;
 
-    document.getElementById("endpointUrl").value = localStorage.getItem("ogpt_url") || "";
-    document.getElementById("modelName").value = localStorage.getItem("ogpt_model") || "qwen2.5:14b-instruct-q4_K_M";
-    document.getElementById("accessPin").value = localStorage.getItem("ogpt_pin") || "";
+    const viewport = document.getElementById("chatViewport");
+    const emptyState = document.getElementById("emptyState");
+    const form = document.getElementById("chatForm");
+    const input = document.getElementById("promptInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const newChatBtn = document.getElementById("newChatBtn");
+    const tokenBadge = document.getElementById("tokenBadge");
+    const summaryStatus = document.getElementById("summaryStatus");
 
-    const hour = new Date().getHours();
-    const timeGreeting = hour < 12 ? "Good morning." : hour < 17 ? "Good afternoon." : "Good evening.";
-    document.getElementById("greetingTitle").textContent = `${timeGreeting} What are we working on?`;
-
-    const textarea = document.getElementById("promptInput");
-    function autoResize() {
-      textarea.style.height = "auto";
-      textarea.style.height = Math.min(textarea.scrollHeight, 160) + "px";
-    }
-    textarea.addEventListener("input", autoResize);
-    textarea.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage(e);
-      }
-    });
-
-    function openEndpointModal() {
-      const modal = document.getElementById("endpointModal");
-      modal.classList.remove("hidden");
-      modal.classList.add("flex");
-    }
-
-    function closeEndpointModal() {
-      const modal = document.getElementById("endpointModal");
-      modal.classList.add("hidden");
-      modal.classList.remove("flex");
-    }
-
-    function saveEndpointConfig() {
-      localStorage.setItem("ogpt_url", document.getElementById("endpointUrl").value.trim());
-      localStorage.setItem("ogpt_model", document.getElementById("modelName").value.trim() || "qwen2.5:14b-instruct-q4_K_M");
-      localStorage.setItem("ogpt_pin", document.getElementById("accessPin").value.trim());
-      closeEndpointModal();
-    }
-
-    function useStarter(promptText) {
-      textarea.value = promptText;
-      autoResize();
-      textarea.focus();
-    }
-
-    function clearChat() {
-      messages = [];
-      rollingSummary = "";
-      totalTokensSaved = 0;
-      localStorage.removeItem("ogpt_messages");
-      localStorage.removeItem("ogpt_summary");
-      localStorage.setItem("ogpt_saved", "0");
-      renderChat();
-    }
-
-    function estimateTokens(text) {
-      return Math.ceil((text || "").length / 4);
-    }
-
-    function addCopyButtons(container) {
-      container.querySelectorAll("pre").forEach(pre => {
-        if (pre.querySelector(".copy-btn")) return;
-        pre.style.position = "relative";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "copy-btn text-[11px] px-2 py-0.5 rounded panel border text-[#f79a32] hover:bg-[#3a2c1a]";
-        btn.style.position = "absolute";
-        btn.style.top = "8px";
-        btn.style.right = "8px";
-        btn.textContent = "Copy";
-        btn.onclick = () => {
-          const code = pre.querySelector("code")?.innerText || "";
-          navigator.clipboard.writeText(code);
-          btn.textContent = "Copied";
-          setTimeout(() => { btn.textContent = "Copy"; }, 1200);
-        };
-        pre.appendChild(btn);
-      });
-    }
-
-    function renderChat() {
-      const welcome = document.getElementById("welcomeScreen");
-      const box = document.getElementById("chatBox");
-
-      if (messages.length === 0) {
-        welcome.classList.remove("hidden");
-        box.classList.add("hidden");
-        box.innerHTML = "";
-      } else {
-        welcome.classList.add("hidden");
-        box.classList.remove("hidden");
-        box.innerHTML = "";
-
-        messages.forEach(m => {
-          const div = document.createElement("div");
-          if (m.role === "user") {
-            div.className = "ml-auto max-w-xl px-4 py-3 rounded-xl bg-[#362919] border border-[#5c4529] text-sm text-[#f2d8b6] whitespace-pre-wrap";
-            div.textContent = m.content;
-          } else {
-            div.className = "mr-auto max-w-3xl px-4 py-3.5 rounded-xl panel border text-sm prose max-w-none";
-            div.innerHTML = m.content ? marked.parse(m.content) : "<span class='text-[#9e7850]'>Thinking...</span>";
-            addCopyButtons(div);
-          }
-          box.appendChild(div);
-        });
-      }
-
-      document.getElementById("tokenBadge").textContent = `Tokens saved: ~${totalTokensSaved}`;
-      document.getElementById("summaryStatus").textContent = rollingSummary ? "Context: Compressed + Last 6" : "Window: Last 6 msgs";
-      document.getElementById("chatViewport").scrollTop = document.getElementById("chatViewport").scrollHeight;
-    }
-
-    async function updateRollingSummary(endpointUrl, model, pin) {
-      if (messages.length < 6 || messages.length % 6 !== 0) return;
-      const olderChunk = messages.slice(-8, -2).map(m => `${m.role}: ${m.content}`).join("\n");
+    function loadMessages() {
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Access-Pin": pin },
-          body: JSON.stringify({
-            base_url: endpointUrl || null,
-            model,
-            stream: false,
-            temperature: 0.1,
-            max_tokens: 180,
-            messages: [
-              { role: "system", content: "Compress the prior summary and new lines into <=120 words of key facts, decisions, and technical context. No fluff." },
-              { role: "user", content: `Previous summary: ${rollingSummary || "None"}\n\nNew lines:\n${olderChunk}` }
-            ]
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          rollingSummary = data.choices?.[0]?.message?.content?.trim() || rollingSummary;
-          localStorage.setItem("ogpt_summary", rollingSummary);
-        }
+        const raw = localStorage.getItem(STORAGE_KEYS.messages);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function persistState() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(messages.slice(-40)));
+        localStorage.setItem(STORAGE_KEYS.summary, rollingSummary || "");
+        localStorage.setItem(STORAGE_KEYS.saved, String(totalTokensSaved));
       } catch (_) {}
     }
 
-    async function sendMessage(e) {
-      e.preventDefault();
-      const text = textarea.value.trim();
-      const endpointUrl = localStorage.getItem("ogpt_url") || "";
-      const model = localStorage.getItem("ogpt_model") || "qwen2.5:14b-instruct-q4_K_M";
-      const pin = localStorage.getItem("ogpt_pin") || "";
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
 
-      if (!text) return;
+    function formatInline(text) {
+      const escaped = escapeHtml(text);
+      return escaped
+        .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    }
 
-      textarea.value = "";
-      autoResize();
-      messages.push({ role: "user", content: text });
-
-      const fullHistoryTokens = estimateTokens(messages.map(m => m.content).join(" "));
-      const recentWindow = messages.slice(-6);
-      const sysPrompt = `You are a direct, accurate technical assistant. Give clear, complete answers with zero filler.${rollingSummary ? " Context summary: " + rollingSummary : ""}`;
-      const sentTokens = estimateTokens(sysPrompt + recentWindow.map(m => m.content).join(" "));
-      if (fullHistoryTokens > sentTokens) {
-        totalTokensSaved += (fullHistoryTokens - sentTokens);
-        localStorage.setItem("ogpt_saved", String(totalTokensSaved));
+    function renderMarkdownLite(rawText, isStreamingEmpty) {
+      if (!rawText) {
+        return isStreamingEmpty
+          ? '<span class="thinking-dots">Thinking</span>'
+          : "";
       }
 
+      if (rawText.startsWith("**Error") || rawText.includes("**Stream Error:**") || rawText.startsWith("**Connection Failed:**")) {
+        return `<div class="error-banner">${escapeHtml(rawText)}</div>`;
+      }
+
+      const parts = rawText.split(/```([^\n`]*)\n([\s\S]*?)```/g);
+      let html = "";
+
+      for (let i = 0; i < parts.length; i += 3) {
+        const prose = parts[i] || "";
+        if (prose.trim()) {
+          const paragraphs = prose.split(/\n{2,}/);
+          for (const p of paragraphs) {
+            const lines = p.split("\n").map(l => formatInline(l)).join("<br>");
+            html += `<p>${lines}</p>`;
+          }
+        }
+
+        if (i + 2 < parts.length) {
+          const lang = (parts[i + 1] || "shell").trim() || "shell";
+          const code = parts[i + 2] || "";
+          const encoded = encodeURIComponent(code);
+          html += `
+            <div class="code-block">
+              <div class="code-header">
+                <span>${escapeHtml(lang)}</span>
+                <button class="copy-btn" type="button" data-code="${encoded}">Copy</button>
+              </div>
+              <pre><code>${escapeHtml(code)}</code></pre>
+            </div>
+          `;
+        }
+      }
+
+      return html || `<p>${formatInline(rawText)}</p>`;
+    }
+
+    function renderChat() {
+      tokenBadge.textContent = `Tokens saved: ~${totalTokensSaved}`;
+      summaryStatus.textContent = rollingSummary
+        ? "Context: Summary + Last 6"
+        : "Window: Last 6 msgs";
+
+      if (!messages.length) {
+        viewport.innerHTML = "";
+        viewport.appendChild(emptyState);
+        emptyState.style.display = "block";
+        return;
+      }
+
+      emptyState.style.display = "none";
+      const frag = document.createDocumentFragment();
+      const isBusy = Boolean(activeController);
+
+      messages.forEach((msg, idx) => {
+        const row = document.createElement("div");
+        row.className = `msg-row ${msg.role}`;
+
+        const meta = document.createElement("div");
+        meta.className = "msg-meta";
+        meta.textContent = msg.role === "user" ? "you" : "omnigpt";
+
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+
+        if (msg.role === "user") {
+          bubble.textContent = msg.content;
+        } else {
+          const isLastEmptyAssistant = isBusy && idx === messages.length - 1 && !msg.content;
+          bubble.innerHTML = renderMarkdownLite(msg.content, isLastEmptyAssistant);
+        }
+
+        row.appendChild(meta);
+        row.appendChild(bubble);
+        frag.appendChild(row);
+      });
+
+      viewport.innerHTML = "";
+      viewport.appendChild(frag);
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+
+    function autoResizeTextarea() {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 220) + "px";
+    }
+
+    async function sendMessage(promptText) {
+      const trimmed = (promptText || "").trim();
+      if (!trimmed || activeController) return;
+
+      const historyBeforeTurn = [...messages];
+      messages.push({ role: "user", content: trimmed });
       messages.push({ role: "assistant", content: "" });
+
+      activeController = new AbortController();
+      sendBtn.disabled = true;
+      stopBtn.style.display = "inline-block";
       renderChat();
 
-      const btn = document.getElementById("sendBtn");
-      btn.disabled = true;
+      const recentWindow = messages.slice(-7, -1); // up to 6 prior/current user+assistant msgs
 
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Access-Pin": pin },
+          headers: { "Content-Type": "application/json" },
+          signal: activeController.signal,
           body: JSON.stringify({
-            base_url: endpointUrl || null,
-            model,
+            messages: [...recentWindow, { role: "user", content: trimmed }],
+            summary: rollingSummary,
             stream: true,
-            temperature: 0.3,
-            messages: [{ role: "system", content: sysPrompt }, ...recentWindow]
+            temperature: 0.3
           })
         });
 
         if (!response.ok) {
           const errText = await response.text();
           messages[messages.length - 1].content = `**Error (${response.status}):** ${errText}`;
-          renderChat();
           return;
         }
 
@@ -403,36 +669,113 @@
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
-          buffer = lines.pop();
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const payload = trimmed.slice(5).trim();
-            if (payload === "[DONE]") break;
+            const trimmedLine = line.trim();
+            if (!trimmedLine.startsWith("data:")) continue;
+            const payload = trimmedLine.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+
             try {
               const json = JSON.parse(payload);
+              if (json.meta && typeof json.meta.tokens_saved_est === "number") {
+                totalTokensSaved += json.meta.tokens_saved_est;
+              }
               if (json.error) {
                 messages[messages.length - 1].content += `\n**Stream Error:** ${json.error}`;
               } else {
                 const delta = json.token ?? json.choices?.[0]?.delta?.content ?? "";
-                messages[messages.length - 1].content += delta;
+                if (delta) {
+                  messages[messages.length - 1].content += delta;
+                }
+              }
+              if (typeof json.summary === "string" && json.summary.trim()) {
+                rollingSummary = json.summary.trim();
               }
               renderChat();
             } catch (_) {}
           }
         }
       } catch (err) {
-        messages[messages.length - 1].content = `**Connection Failed:** ${err.message}`;
-        renderChat();
+        if (err.name === "AbortError") {
+          if (!messages[messages.length - 1].content) {
+            messages[messages.length - 1].content = "*[Stopped]*";
+          }
+        } else {
+          messages[messages.length - 1].content = `**Connection Failed:** ${err.message}`;
+          messages = [...historyBeforeTurn, { role: "user", content: trimmed }, messages[messages.length - 1]];
+        }
       } finally {
-        btn.disabled = false;
-        localStorage.setItem("ogpt_messages", JSON.stringify(messages));
-        updateRollingSummary(endpointUrl, model, pin);
+        activeController = null;
+        sendBtn.disabled = false;
+        stopBtn.style.display = "none";
+        persistState();
+        renderChat();
+        input.focus();
       }
     }
 
+    viewport.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".copy-btn");
+      if (!btn) return;
+      const code = decodeURIComponent(btn.dataset.code || "");
+      try {
+        await navigator.clipboard.writeText(code);
+        const prev = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = prev; }, 1200);
+      } catch (_) {}
+    });
+
+    document.querySelectorAll(".prompt-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const text = chip.dataset.prompt || "";
+        input.value = text;
+        autoResizeTextarea();
+        sendMessage(text);
+        input.value = "";
+        autoResizeTextarea();
+      });
+    });
+
+    stopBtn.addEventListener("click", () => {
+      if (activeController) {
+        activeController.abort();
+      }
+    });
+
+    newChatBtn.addEventListener("click", () => {
+      if (activeController) {
+        activeController.abort();
+      }
+      messages = [];
+      rollingSummary = "";
+      persistState();
+      renderChat();
+      input.focus();
+    });
+
+    input.addEventListener("input", autoResizeTextarea);
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const val = input.value;
+      if (!val.trim()) return;
+      input.value = "";
+      autoResizeTextarea();
+      sendMessage(val);
+    });
+
     renderChat();
+    input.focus();
   </script>
 </body>
 </html>

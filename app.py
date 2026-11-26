@@ -11,19 +11,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # ==============================================================================
-# CONFIGURATION (Set secrets & endpoints via Render Environment Variables)
+# SERVER-LOCKED UPSTREAM CONFIGURATION (Not exposed or overridable in the UI)
 # ==============================================================================
-# API key is read from the environment — DO NOT paste raw secrets here.
-# On Render -> Environment, set:
-#   LLM_API_KEY      = <your Grok/xAI or Groq API key; optional for Kaggle/Ollama>
-#   LLM_ENDPOINT_URL = <e.g. https://api.x.ai/v1 or https://atop-remarry-richly.ngrok-free.dev>
-#   LLM_MODEL        = <e.g. grok-4.7 or qwen2.5:14b-instruct-q4_K_M>
-#   API_PIN          = <optional PIN required via X-API-PIN header>
-DEFAULT_ENDPOINT_URL = os.getenv(
-    "LLM_ENDPOINT_URL", "https://atop-remarry-richly.ngrok-free.dev"
+# Configure via Render Environment Variables (or server defaults):
+#   LLM_ENDPOINT_URL : e.g. "https://api.groq.com/openai/v1" or your ngrok URL
+#   LLM_API_KEY      : Bearer token for hosted APIs (leave empty for Ollama/ngrok)
+#   LLM_MODEL        : e.g. "openai/gpt-oss-20b"
+#   API_PIN          : Optional server-side PIN required via X-API-PIN header
+LOCKED_ENDPOINT_URL = os.getenv(
+    "LLM_ENDPOINT_URL", "https://api.groq.com/openai/v1"
 ).strip()
-DEFAULT_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b-instruct-q4_K_M").strip()
+LOCKED_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LOCKED_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b").strip()
 API_PIN = os.getenv("API_PIN", "").strip()
 
 RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "6"))
@@ -32,14 +31,18 @@ REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "180.0"))
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-INDEX_FILE = (STATIC_DIR / "index.html" if (STATIC_DIR / "index.html").exists() else BASE_DIR / "index.html")
-
-SYSTEM_PROMPT = (
-    "You are OmniGPT, a direct, low-token technical assistant. "
-    "Give concise, accurate, actionable answers without fluff."
+INDEX_FILE = (
+    STATIC_DIR / "index.html"
+    if (STATIC_DIR / "index.html").exists()
+    else BASE_DIR / "index.html"
 )
 
-app = FastAPI(title="OmniGPT Proxy", version="1.0.0")
+SYSTEM_PROMPT = (
+    "You are OmniGPT, a direct, low-token DevOps and SRE technical assistant. "
+    "Give concise, accurate, actionable answers with clear commands and zero fluff."
+)
+
+app = FastAPI(title="OmniGPT", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,11 +64,9 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     summary: str = ""
-    base_url: str | None = None
-    model: str | None = None
     stream: bool = True
     max_tokens: int | None = None
-    temperature: float = 0.7
+    temperature: float = 0.3
 
 
 def verify_pin(x_api_pin: str | None) -> None:
@@ -74,9 +75,9 @@ def verify_pin(x_api_pin: str | None) -> None:
 
 
 def normalize_chat_completions_url(raw_url: str | None) -> str:
-    candidate = (raw_url or DEFAULT_ENDPOINT_URL or "").strip().rstrip("/")
+    candidate = (raw_url or "").strip().rstrip("/")
     if not candidate:
-        raise HTTPException(status_code=400, detail="No LLM endpoint URL configured")
+        raise HTTPException(status_code=500, detail="Server LLM endpoint URL is not set")
     if candidate.endswith("/v1/chat/completions"):
         return candidate
     if candidate.endswith("/v1"):
@@ -89,13 +90,12 @@ def build_upstream_headers() -> dict[str, str]:
         "Content-Type": "application/json",
         "ngrok-skip-browser-warning": "true",
     }
-    # API key is injected here from LLM_API_KEY when set on the server
-    if DEFAULT_API_KEY:
-        headers["Authorization"] = f"Bearer {DEFAULT_API_KEY}"
+    if LOCKED_API_KEY:
+        headers["Authorization"] = f"Bearer {LOCKED_API_KEY}"
     return headers
 
 
-def build_windowed_payload(req: ChatRequest, stream: bool) -> dict[str, Any]:
+def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, Any], int]:
     clean_msgs = [
         {"role": m.role, "content": m.content}
         for m in req.messages
@@ -116,10 +116,11 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> dict[str, Any]:
     messages.extend(window)
 
     payload: dict[str, Any] = {
-        "model": (req.model or DEFAULT_MODEL).strip(),
+        "model": LOCKED_MODEL,
         "messages": messages,
         "stream": stream,
         "temperature": req.temperature,
+        "reasoning_effort": "low",
     }
     if req.max_tokens is not None:
         payload["max_tokens"] = req.max_tokens
@@ -185,15 +186,15 @@ async def serve_index():
 async def health():
     return {
         "status": "ok",
-        "default_model": DEFAULT_MODEL,
-        "has_api_key": bool(DEFAULT_API_KEY),
+        "model": LOCKED_MODEL,
+        "has_api_key": bool(LOCKED_API_KEY),
     }
 
 
 @app.post("/api/chat/sync")
 async def chat_sync(req: ChatRequest, x_api_pin: str | None = Header(default=None)):
     verify_pin(x_api_pin)
-    url = normalize_chat_completions_url(req.base_url)
+    url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=False)
 
@@ -206,7 +207,10 @@ async def chat_sync(req: ChatRequest, x_api_pin: str | None = Header(default=Non
 
         updated_summary = req.summary
         if len(req.messages) >= SUMMARY_TRIGGER_MESSAGES and RECENT_WINDOW_MESSAGES > 0:
-            older = [{"role": m.role, "content": m.content} for m in req.messages[:-RECENT_WINDOW_MESSAGES]]
+            older = [
+                {"role": m.role, "content": m.content}
+                for m in req.messages[:-RECENT_WINDOW_MESSAGES]
+            ]
             updated_summary = await update_rolling_summary(
                 client, url, headers, payload["model"], req.summary, older
             )
@@ -225,7 +229,7 @@ async def chat_stream(
     x_api_pin: str | None = Header(default=None),
 ):
     verify_pin(x_api_pin)
-    url = normalize_chat_completions_url(req.base_url)
+    url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=True)
 
@@ -250,7 +254,7 @@ async def chat_stream(
                                 break
                             try:
                                 parsed = json.loads(raw_chunk)
-                                delta = ((parsed.get("choices") or [{}])[0].get("delta") or {})
+                                delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
                                 token = delta.get("content")
                                 if token:
                                     yield f"data: {json.dumps({'token': token})}\n\n"
