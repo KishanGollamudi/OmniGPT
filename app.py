@@ -1,10 +1,14 @@
+import base64
+import hashlib
+import hmac
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,12 +17,14 @@ from pydantic import BaseModel, Field
 # ==============================================================================
 # SERVER-LOCKED GROQ CONFIGURATION (Not exposed or overridable in the UI)
 # ==============================================================================
-LOCKED_ENDPOINT_URL = os.getenv(
-    "LLM_ENDPOINT_URL", "https://api.groq.com/openai/v1"
-).strip()
+LOCKED_ENDPOINT_URL = "https://api.groq.com/openai/v1"
 LOCKED_API_KEY = os.getenv("LLM_API_KEY", "").strip()
 LOCKED_MODEL = "openai/gpt-oss-20b"
-API_PIN = os.getenv("API_PIN", "").strip()
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+USER_ACCESS_KEY = os.getenv("USER_ACCESS_KEY", "")
+AUTH_SECRET = os.getenv("AUTH_SECRET", "")
+AUTH_TOKEN_TTL_SECONDS = 12 * 60 * 60
 
 RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "6"))
 SUMMARY_TRIGGER_MESSAGES = int(os.getenv("SUMMARY_TRIGGER_MESSAGES", "10"))
@@ -36,6 +42,8 @@ SYSTEM_PROMPT = (
     "You are OmniGPT, a direct, low-token DevOps and SRE technical assistant. "
     "Give concise, accurate, actionable answers with clear commands and zero fluff."
 )
+ACTIVE_SYSTEM_PROMPT = SYSTEM_PROMPT
+ACTIVE_TEMPERATURE = 0.3
 
 app = FastAPI(title="OmniGPT", version="2.0.0")
 
@@ -61,12 +69,73 @@ class ChatRequest(BaseModel):
     summary: str = ""
     stream: bool = True
     max_tokens: int | None = None
-    temperature: float = 0.3
+    temperature: float | None = None
 
 
-def verify_pin(x_api_pin: str | None) -> None:
-    if API_PIN and (x_api_pin or "").strip() != API_PIN:
-        raise HTTPException(status_code=401, detail="Invalid or missing API PIN")
+class LoginRequest(BaseModel):
+    username: str = ""
+    password: str = ""
+    access_key: str = ""
+
+
+class AdminSettings(BaseModel):
+    system_prompt: str = Field(min_length=1, max_length=12000)
+    temperature: float = Field(ge=0, le=2)
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _secure_compare(value: str, expected: str) -> bool:
+    return hmac.compare_digest(value.encode("utf-8"), expected.encode("utf-8"))
+
+
+def create_token(role: str, username: str) -> str:
+    if not AUTH_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured")
+    now = int(time.time())
+    payload = _b64url_encode(
+        json.dumps(
+            {"role": role, "username": username, "iat": now, "exp": now + AUTH_TOKEN_TTL_SECONDS},
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    signature = _b64url_encode(hmac.new(AUTH_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+    return f"{payload}.{signature}"
+
+
+def get_token_claims(request: Request) -> dict[str, Any]:
+    if not AUTH_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured")
+    authorization = request.headers.get("authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Missing or invalid bearer token")
+    try:
+        payload, signature = token.split(".", 1)
+        expected = _b64url_encode(
+            hmac.new(AUTH_SECRET.encode(), payload.encode(), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("Invalid signature")
+        claims = json.loads(_b64url_decode(payload))
+        if claims.get("role") not in {"user", "admin"} or int(claims.get("exp", 0)) <= int(time.time()):
+            raise ValueError("Expired or invalid token")
+        return claims
+    except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=401, detail="Missing or invalid bearer token")
+
+
+def require_admin(request: Request) -> dict[str, Any]:
+    claims = get_token_claims(request)
+    if claims["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return claims
 
 
 def normalize_chat_completions_url(raw_url: str | None) -> str:
@@ -97,7 +166,7 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, An
     ]
 
     window = clean_msgs[-RECENT_WINDOW_MESSAGES:] if RECENT_WINDOW_MESSAGES > 0 else clean_msgs
-    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": ACTIVE_SYSTEM_PROMPT}]
 
     if req.summary and req.summary.strip():
         messages.append(
@@ -113,7 +182,7 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, An
         "model": LOCKED_MODEL,
         "messages": messages,
         "stream": stream,
-        "temperature": req.temperature,
+        "temperature": ACTIVE_TEMPERATURE,
         "reasoning_effort": "low",
     }
     if req.max_tokens is not None:
@@ -185,9 +254,68 @@ async def health():
     }
 
 
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    if not AUTH_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is not configured")
+
+    role: str | None = None
+    username = req.username.strip()
+    if (
+        ADMIN_USERNAME
+        and ADMIN_PASSWORD
+        and _secure_compare(username, ADMIN_USERNAME)
+        and _secure_compare(req.password, ADMIN_PASSWORD)
+    ):
+        role = "admin"
+    elif USER_ACCESS_KEY and _secure_compare(
+        req.access_key or req.password, USER_ACCESS_KEY
+    ):
+        role = "user"
+        username = username or "user"
+
+    if role is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return {
+        "access_token": create_token(role, username),
+        "token_type": "bearer",
+        "role": role,
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    claims = get_token_claims(request)
+    return {"role": claims["role"], "username": claims.get("username", "")}
+
+
+@app.get("/api/admin/settings")
+async def get_admin_settings(request: Request):
+    require_admin(request)
+    return {"system_prompt": ACTIVE_SYSTEM_PROMPT, "temperature": ACTIVE_TEMPERATURE}
+
+
+@app.put("/api/admin/settings")
+async def update_admin_settings(req: AdminSettings, request: Request):
+    require_admin(request)
+    prompt = req.system_prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=422, detail="System prompt cannot be empty")
+    global ACTIVE_SYSTEM_PROMPT, ACTIVE_TEMPERATURE
+    ACTIVE_SYSTEM_PROMPT = prompt
+    ACTIVE_TEMPERATURE = req.temperature
+    return {"system_prompt": ACTIVE_SYSTEM_PROMPT, "temperature": ACTIVE_TEMPERATURE}
+
+
+@app.get("/api/admin/health")
+async def admin_health(request: Request):
+    require_admin(request)
+    return await health()
+
+
 @app.post("/api/chat/sync")
-async def chat_sync(req: ChatRequest, x_api_pin: str | None = Header(default=None)):
-    verify_pin(x_api_pin)
+async def chat_sync(req: ChatRequest, request: Request):
+    get_token_claims(request)
     url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=False)
@@ -220,9 +348,8 @@ async def chat_sync(req: ChatRequest, x_api_pin: str | None = Header(default=Non
 async def chat_stream(
     req: ChatRequest,
     request: Request,
-    x_api_pin: str | None = Header(default=None),
 ):
-    verify_pin(x_api_pin)
+    get_token_claims(request)
     url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=True)

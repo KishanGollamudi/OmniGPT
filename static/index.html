@@ -24,6 +24,61 @@
       --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
 
+    body[data-theme="matte-black"] {
+      --bg-base: #080808; --bg-surface: #121212; --bg-elevated: #1c1c1c; --bg-user: #202020;
+      --border-subtle: rgba(255,255,255,.1); --border-strong: rgba(255,255,255,.25);
+      --text-primary: #f2f2f2; --text-secondary: #b8b8b8; --text-muted: #858585;
+      --accent-amber: #c9c9c9; --accent-gold: #fff; --accent-rust: #888;
+    }
+    body[data-theme="frosted-glass"] {
+      --bg-base: #19212a; --bg-surface: rgba(255,255,255,.09); --bg-elevated: rgba(255,255,255,.15);
+      --bg-user: rgba(108,174,216,.2); --border-subtle: rgba(218,239,255,.2); --border-strong: rgba(218,239,255,.42);
+      --text-primary: #f1f8ff; --text-secondary: #c4d7e8; --text-muted: #91aabd;
+      --accent-amber: #78c8ee; --accent-gold: #a6e2ff; --accent-rust: #649cc6;
+    }
+    body[data-theme="isometric"] {
+      --bg-base: #101523; --bg-surface: #1b2438; --bg-elevated: #26334c; --bg-user: #273552;
+      --border-subtle: rgba(102,202,255,.22); --border-strong: rgba(102,202,255,.5);
+      --text-primary: #e7f2ff; --text-secondary: #b4c8df; --text-muted: #7d91ab;
+      --accent-amber: #3ab4df; --accent-gold: #74ddff; --accent-rust: #8572ef;
+    }
+    body[data-theme="clay"] {
+      --bg-base: #d7d0c7; --bg-surface: #d7d0c7; --bg-elevated: #c9c1b7; --bg-user: #cfc7bd;
+      --border-subtle: rgba(105,92,77,.18); --border-strong: rgba(105,92,77,.35);
+      --text-primary: #39342f; --text-secondary: #5e564d; --text-muted: #82786c;
+      --accent-amber: #a56d46; --accent-gold: #875632; --accent-rust: #b35a45;
+    }
+    body[data-theme="cyberpunk"] {
+      --bg-base: #10091b; --bg-surface: #1b1028; --bg-elevated: #29143b; --bg-user: #301737;
+      --border-subtle: rgba(255,56,214,.27); --border-strong: rgba(48,244,255,.5);
+      --text-primary: #fff0ff; --text-secondary: #d5badf; --text-muted: #a286af;
+      --accent-amber: #ff38d6; --accent-gold: #38f6ff; --accent-rust: #ff5b83;
+    }
+    body[data-theme="nordic"] {
+      --bg-base: #242d38; --bg-surface: #2e3946; --bg-elevated: #394656; --bg-user: #344756;
+      --border-subtle: rgba(183,218,229,.18); --border-strong: rgba(143,221,222,.4);
+      --text-primary: #e8f0f3; --text-secondary: #c3d0d7; --text-muted: #91a4af;
+      --accent-amber: #80c4c7; --accent-gold: #a4d8d6; --accent-rust: #d39a82;
+    }
+    body[data-theme="emerald"] {
+      --bg-base: #071510; --bg-surface: #10231a; --bg-elevated: #183326; --bg-user: #173a2b;
+      --border-subtle: rgba(81,214,140,.2); --border-strong: rgba(103,242,164,.44);
+      --text-primary: #ddf8e9; --text-secondary: #a9d8bd; --text-muted: #74a48a;
+      --accent-amber: #3acb7b; --accent-gold: #75efa9; --accent-rust: #21a776;
+    }
+    body[data-theme="solarized"] {
+      --bg-base: #002b36; --bg-surface: #073642; --bg-elevated: #12434e; --bg-user: #10434e;
+      --border-subtle: rgba(131,148,150,.22); --border-strong: rgba(42,161,152,.48);
+      --text-primary: #eee8d5; --text-secondary: #c2c6b7; --text-muted: #839496;
+      --accent-amber: #2aa198; --accent-gold: #b58900; --accent-rust: #cb4b16;
+    }
+    body[data-theme="paper"] {
+      --bg-base: #f5f1e8; --bg-surface: #fffdf8; --bg-elevated: #ece5d8; --bg-user: #eee7dc;
+      --border-subtle: rgba(76,66,50,.16); --border-strong: rgba(76,66,50,.32);
+      --text-primary: #28251f; --text-secondary: #575044; --text-muted: #857d70;
+      --accent-amber: #a65d28; --accent-gold: #8e4c1f; --accent-rust: #b34f37;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -36,6 +91,33 @@
       color: var(--text-primary);
       font-family: var(--font-sans);
       -webkit-font-smoothing: antialiased;
+    }
+
+    body[data-theme="frosted-glass"] {
+      background: radial-gradient(circle at 20% 15%, #37536a, #19212a 70%);
+    }
+    body[data-theme="frosted-glass"] .pill,
+    body[data-theme="frosted-glass"] .empty-state,
+    body[data-theme="frosted-glass"] .bubble,
+    body[data-theme="frosted-glass"] .composer,
+    body[data-theme="frosted-glass"] .admin-drawer {
+      backdrop-filter: blur(16px);
+    }
+    body[data-theme="isometric"] {
+      background-color: var(--bg-base);
+      background-image: linear-gradient(30deg, rgba(91,183,224,.08) 12%, transparent 12.5%, transparent 87%, rgba(91,183,224,.08) 87.5%, rgba(91,183,224,.08)),
+        linear-gradient(150deg, rgba(91,183,224,.08) 12%, transparent 12.5%, transparent 87%, rgba(91,183,224,.08) 87.5%, rgba(91,183,224,.08)),
+        linear-gradient(30deg, rgba(91,183,224,.08) 12%, transparent 12.5%, transparent 87%, rgba(91,183,224,.08) 87.5%, rgba(91,183,224,.08));
+      background-size: 44px 76px;
+    }
+    body[data-theme="isometric"] .empty-state,
+    body[data-theme="isometric"] .composer,
+    body[data-theme="isometric"] .bubble { box-shadow: 5px 6px 0 rgba(0,0,0,.24); }
+    body[data-theme="clay"] .empty-state,
+    body[data-theme="clay"] .composer,
+    body[data-theme="clay"] .bubble,
+    body[data-theme="clay"] .btn {
+      box-shadow: 6px 6px 14px rgba(90,78,64,.18), -5px -5px 12px rgba(255,255,255,.55);
     }
 
     .app-shell {
@@ -99,6 +181,49 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+
+    .theme-select, .field {
+      font: 12px var(--font-mono);
+      color: var(--text-primary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .login-gate {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: var(--bg-base);
+    }
+    .login-card {
+      width: min(100%, 390px);
+      padding: 28px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      background: var(--bg-surface);
+    }
+    .login-card h1 { font: 700 20px var(--font-mono); color: var(--accent-gold); margin-bottom: 8px; }
+    .login-card p { color: var(--text-secondary); font-size: 13px; margin-bottom: 18px; }
+    .login-card label, .admin-drawer label { display: block; font: 12px var(--font-mono); color: var(--text-secondary); margin: 12px 0 6px; }
+    .login-card .field, .admin-drawer .field { width: 100%; }
+    .login-error { min-height: 18px; margin: 10px 0; color: #ff9a85; font-size: 12px; }
+    .hidden { display: none !important; }
+    .admin-backdrop {
+      position: fixed; inset: 0; z-index: 5; background: rgba(0,0,0,.55);
+    }
+    .admin-drawer {
+      position: fixed; z-index: 6; top: 0; right: 0; height: 100dvh; width: min(420px, 94vw);
+      overflow-y: auto; padding: 22px; background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle); box-shadow: -12px 0 32px rgba(0,0,0,.25);
+    }
+    .admin-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .admin-drawer h2 { font: 700 17px var(--font-mono); color: var(--accent-gold); }
+    .admin-drawer textarea { min-height: 190px; resize: vertical; font: 12px/1.5 var(--font-mono); }
+    .admin-health { margin: 16px 0; white-space: pre-wrap; font: 12px/1.5 var(--font-mono); color: var(--text-secondary); }
+    .role-pill { color: var(--accent-gold); }
 
     .pill {
       font-family: var(--font-mono);
@@ -417,7 +542,20 @@
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <section id="loginGate" class="login-gate">
+    <form id="loginForm" class="login-card">
+      <h1>&gt;_ OmniGPT</h1>
+      <p>Sign in to open the DevOps &amp; SRE console.</p>
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" class="field" autocomplete="username" />
+      <label for="loginPassword">Password or user access key</label>
+      <input id="loginPassword" class="field" type="password" autocomplete="current-password" required />
+      <div id="loginError" class="login-error" role="alert"></div>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">&gt;_</div>
@@ -428,6 +566,21 @@
       </div>
 
       <div class="telemetry">
+        <select id="themeSelect" class="theme-select" aria-label="Theme">
+          <option value="kimbie">Kimbie Dark</option>
+          <option value="matte-black">Pure Matte Black</option>
+          <option value="frosted-glass">Frosted Glass</option>
+          <option value="isometric">3D Isometric Grid</option>
+          <option value="clay">3D Clay / Neumorphic</option>
+          <option value="cyberpunk">Cyberpunk Neon</option>
+          <option value="nordic">Nordic Frost</option>
+          <option value="emerald">Emerald Matrix</option>
+          <option value="solarized">Solarized Dark</option>
+          <option value="paper">Paper Light</option>
+        </select>
+        <span id="roleBadge" class="pill role-pill"></span>
+        <button id="adminBtn" class="btn hidden" type="button">Admin</button>
+        <button id="logoutBtn" class="btn" type="button">Sign out</button>
         <span id="tokenBadge" class="pill pill-gold">Tokens saved: ~0</span>
         <span id="summaryStatus" class="pill">Window: Last 6 msgs</span>
         <button id="stopBtn" class="btn btn-stop" type="button" style="display: none;">Stop</button>
@@ -473,11 +626,28 @@
     </footer>
   </div>
 
+  <div id="adminBackdrop" class="admin-backdrop hidden"></div>
+  <aside id="adminDrawer" class="admin-drawer hidden" aria-label="Admin settings">
+    <div class="admin-head"><h2>Admin settings</h2><button id="closeAdminBtn" class="btn" type="button">Close</button></div>
+    <div id="healthInfo" class="admin-health">Loading health…</div>
+    <form id="settingsForm">
+      <label for="systemPromptInput">System prompt</label>
+      <textarea id="systemPromptInput" class="field" required></textarea>
+      <label for="temperatureInput">Temperature (0–2)</label>
+      <input id="temperatureInput" class="field" type="number" min="0" max="2" step="0.1" required />
+      <div id="settingsStatus" class="login-error" role="status"></div>
+      <button class="btn btn-primary" type="submit">Save in memory</button>
+    </form>
+  </aside>
+
   <script>
     const STORAGE_KEYS = {
       messages: "omnigpt_v2_messages",
       summary: "omnigpt_v2_summary",
-      saved: "omnigpt_v2_tokens_saved"
+      saved: "omnigpt_v2_tokens_saved",
+      token: "omnigpt_auth_token",
+      role: "omnigpt_auth_role",
+      theme: "omnigpt_theme"
     };
 
     // Clean up legacy endpoint override keys if present from older versions
@@ -489,6 +659,8 @@
     let rollingSummary = localStorage.getItem(STORAGE_KEYS.summary) || "";
     let totalTokensSaved = Number(localStorage.getItem(STORAGE_KEYS.saved) || "0") || 0;
     let activeController = null;
+    let authToken = localStorage.getItem(STORAGE_KEYS.token) || "";
+    let authRole = "";
 
     const viewport = document.getElementById("chatViewport");
     const emptyState = document.getElementById("emptyState");
@@ -499,6 +671,75 @@
     const newChatBtn = document.getElementById("newChatBtn");
     const tokenBadge = document.getElementById("tokenBadge");
     const summaryStatus = document.getElementById("summaryStatus");
+    const loginGate = document.getElementById("loginGate");
+    const appShell = document.getElementById("appShell");
+    const loginForm = document.getElementById("loginForm");
+    const loginError = document.getElementById("loginError");
+    const themeSelect = document.getElementById("themeSelect");
+    const roleBadge = document.getElementById("roleBadge");
+    const adminBtn = document.getElementById("adminBtn");
+    const adminDrawer = document.getElementById("adminDrawer");
+    const adminBackdrop = document.getElementById("adminBackdrop");
+    const systemPromptInput = document.getElementById("systemPromptInput");
+    const temperatureInput = document.getElementById("temperatureInput");
+
+    function setTheme(theme) {
+      const validThemes = Array.from(themeSelect.options).map(option => option.value);
+      const selected = validThemes.includes(theme) ? theme : "kimbie";
+      document.body.dataset.theme = selected;
+      themeSelect.value = selected;
+      localStorage.setItem(STORAGE_KEYS.theme, selected);
+    }
+
+    function setAuthenticated(role) {
+      authRole = role;
+      loginGate.classList.add("hidden");
+      appShell.classList.remove("hidden");
+      roleBadge.textContent = role;
+      adminBtn.classList.toggle("hidden", role !== "admin");
+      renderChat();
+    }
+
+    function clearAuthentication() {
+      authToken = "";
+      authRole = "";
+      localStorage.removeItem(STORAGE_KEYS.token);
+      localStorage.removeItem(STORAGE_KEYS.role);
+      appShell.classList.add("hidden");
+      loginGate.classList.remove("hidden");
+      closeAdmin();
+    }
+
+    async function authenticatedFetch(url, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set("Authorization", `Bearer ${authToken}`);
+      return fetch(url, { ...options, headers });
+    }
+
+    async function openAdmin() {
+      if (authRole !== "admin") return;
+      adminDrawer.classList.remove("hidden");
+      adminBackdrop.classList.remove("hidden");
+      document.getElementById("settingsStatus").textContent = "";
+      const [healthResponse, settingsResponse] = await Promise.all([
+        authenticatedFetch("/api/admin/health"),
+        authenticatedFetch("/api/admin/settings")
+      ]);
+      if (healthResponse.status === 401 || settingsResponse.status === 401) {
+        clearAuthentication();
+        return;
+      }
+      if (!healthResponse.ok || !settingsResponse.ok) throw new Error("Could not load admin settings");
+      const [healthData, settings] = await Promise.all([healthResponse.json(), settingsResponse.json()]);
+      document.getElementById("healthInfo").textContent = `Health: ${healthData.status}\nModel: ${healthData.model}\nAPI key configured: ${healthData.has_api_key}`;
+      systemPromptInput.value = settings.system_prompt;
+      temperatureInput.value = settings.temperature;
+    }
+
+    function closeAdmin() {
+      adminDrawer.classList.add("hidden");
+      adminBackdrop.classList.add("hidden");
+    }
 
     function loadMessages() {
       try {
@@ -642,7 +883,7 @@
       const recentWindow = messages.slice(-7, -1); // up to 6 prior/current user+assistant msgs
 
       try {
-        const response = await fetch("/api/chat", {
+        const response = await authenticatedFetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: activeController.signal,
@@ -656,6 +897,7 @@
 
         if (!response.ok) {
           const errText = await response.text();
+          if (response.status === 401) clearAuthentication();
           messages[messages.length - 1].content = `**Error (${response.status}):** ${errText}`;
           return;
         }
@@ -745,6 +987,63 @@
       }
     });
 
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.textContent = "";
+      const username = document.getElementById("loginUsername").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Sign-in failed");
+        authToken = data.access_token;
+        localStorage.setItem(STORAGE_KEYS.token, authToken);
+        localStorage.setItem(STORAGE_KEYS.role, data.role);
+        setAuthenticated(data.role);
+        input.focus();
+      } catch (error) {
+        loginError.textContent = error.message;
+      }
+    });
+
+    themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
+    adminBtn.addEventListener("click", () => {
+      openAdmin().catch(error => {
+        document.getElementById("healthInfo").textContent = error.message;
+      });
+    });
+    document.getElementById("closeAdminBtn").addEventListener("click", closeAdmin);
+    adminBackdrop.addEventListener("click", closeAdmin);
+    document.getElementById("logoutBtn").addEventListener("click", clearAuthentication);
+    document.getElementById("settingsForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = document.getElementById("settingsStatus");
+      status.textContent = "";
+      try {
+        const response = await authenticatedFetch("/api/admin/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_prompt: systemPromptInput.value,
+            temperature: Number(temperatureInput.value)
+          })
+        });
+        const result = await response.json();
+        if (response.status === 401) {
+          clearAuthentication();
+          return;
+        }
+        if (!response.ok) throw new Error(result.detail || "Could not save settings");
+        status.textContent = "Saved for this server process.";
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+
     newChatBtn.addEventListener("click", () => {
       if (activeController) {
         activeController.abort();
@@ -774,8 +1073,17 @@
       sendMessage(val);
     });
 
+    setTheme(localStorage.getItem(STORAGE_KEYS.theme) || "kimbie");
     renderChat();
-    input.focus();
+    if (authToken) {
+      authenticatedFetch("/api/auth/me")
+        .then(async response => {
+          if (!response.ok) throw new Error("Session expired");
+          const user = await response.json();
+          setAuthenticated(user.role);
+        })
+        .catch(clearAuthentication);
+    }
   </script>
 </body>
 </html>
