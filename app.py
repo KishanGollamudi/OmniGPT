@@ -32,7 +32,7 @@ REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "180.0"))
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-INDEX_FILE = BASE_DIR / "index.html"
+INDEX_FILE = (STATIC_DIR / "index.html" if (STATIC_DIR / "index.html").exists() else BASE_DIR / "index.html")
 
 SYSTEM_PROMPT = (
     "You are OmniGPT, a direct, low-token technical assistant. "
