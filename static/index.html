@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OmniGPT</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/base16/kimbie-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    :root {
+      --bg-main: #221a0f;
+      --bg-panel: #2b2114;
+      --bg-input: #1a140c;
+      --border-warm: #4a3822;
+      --text-main: #d3af86;
+      --text-muted: #9e7850;
+      --accent: #f79a32;
+      --accent-hover: #e28620;
+    }
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .panel {
+      background-color: var(--bg-panel);
+      border-color: var(--border-warm);
+    }
+    .input-box {
+      background-color: var(--bg-input);
+      border-color: var(--border-warm);
+    }
+    .accent {
+      color: var(--accent);
+    }
+    .btn-accent {
+      background-color: var(--accent);
+      color: #221a0f;
+    }
+    .btn-accent:hover {
+      background-color: var(--accent-hover);
+    }
+    .prose pre {
+      background: #17110a !important;
+      border: 1px solid var(--border-warm);
+      padding: 0.85rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      margin: 0.6rem 0;
+    }
+    .prose code {
+      color: var(--accent);
+      font-size: 0.875em;
+    }
+    .prose pre code {
+      color: #e6c8a5;
+    }
+    .prose p {
+      margin-bottom: 0.65rem;
+      line-height: 1.6;
+    }
+    .prose p:last-child {
+      margin-bottom: 0;
+    }
+    .prose ul, .prose ol {
+      margin-left: 1.35rem;
+      margin-bottom: 0.65rem;
+      list-style: revert;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #4a3822;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+  <!-- Top Bar -->
+  <header class="panel border-b px-4 py-2.5 flex items-center justify-between gap-3 text-xs shrink-0">
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="font-bold text-sm accent tracking-wide">&gt;_ OmniGPT</span>
+      <span id="tokenBadge" class="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full input-box border text-[#b58b5e]">
+        Tokens saved: ~0
+      </span>
+      <span id="summaryStatus" class="hidden md:inline text-[#8a6540] truncate">
+        Window: Last 6 msgs
+      </span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button onclick="openEndpointModal()" class="px-2.5 py-1 rounded input-box border text-[#c7a176] hover:border-[#f79a32] hover:text-[#f79a32] transition">
+        Endpoint
+      </button>
+      <button onclick="clearChat()" class="px-2.5 py-1 rounded input-box border text-[#c7a176] hover:border-[#dc3958] hover:text-[#dc3958] transition">
+        New Chat
+      </button>
+    </div>
+  </header>
+
+  <!-- Chat Viewport -->
+  <main id="chatViewport" class="flex-1 overflow-y-auto px-4 py-6">
+    <!-- Welcome / Greeting Screen -->
+    <div id="welcomeScreen" class="max-w-3xl mx-auto min-h-full flex flex-col justify-center items-center text-center py-6">
+      <div class="w-12 h-12 rounded-xl panel border flex items-center justify-center text-xl font-bold accent mb-4 shadow-sm">
+        &gt;_
+      </div>
+      <h1 id="greetingTitle" class="text-2xl sm:text-3xl font-bold text-[#edd2b2] mb-2">
+        Ready when you are.
+      </h1>
+      <p class="text-xs sm:text-sm text-[#9e7850] max-w-lg mb-7 leading-relaxed">
+        Direct, low-token assistant built for fast, accurate answers. Sends only a compact summary plus recent turns so outputs stay sharp and complete.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-2xl text-left text-xs">
+        <button onclick="useStarter('Give me a fast, structured checklist to debug a Kubernetes pod stuck in CrashLoopBackOff.')"
+          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
+          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Kubernetes CrashLoopBackOff</div>
+          <div class="text-[#8a6540]">Fast diagnostic checklist &amp; commands</div>
+        </button>
+        <button onclick="useStarter('Write a clean, production-ready Python utility with type hints and error handling for: ')"
+          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
+          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Production Python Utility</div>
+          <div class="text-[#8a6540]">Clean code with proper error handling</div>
+        </button>
+        <button onclick="useStarter('Review this setup/config and point out bottlenecks, failure modes, and quick improvements: ')"
+          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
+          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Architecture &amp; Config Review</div>
+          <div class="text-[#8a6540]">Spot bottlenecks &amp; high-impact fixes</div>
+        </button>
+        <button onclick="useStarter('Explain this clearly and concisely with a practical example: ')"
+          class="p-3.5 rounded-lg panel border hover:border-[#f79a32] transition group">
+          <div class="font-semibold text-[#e6c8a5] group-hover:text-[#f79a32] mb-1">Clear Technical Breakdown</div>
+          <div class="text-[#8a6540]">Direct explanation with a concrete example</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Messages -->
+    <div id="chatBox" class="max-w-3xl mx-auto space-y-4 hidden"></div>
+  </main>
+
+  <!-- Composer -->
+  <footer class="panel border-t px-4 py-3 shrink-0">
+    <form id="chatForm" onsubmit="sendMessage(event)" class="max-w-3xl mx-auto flex items-end gap-2.5">
+      <textarea id="promptInput" rows="1" placeholder="Type hello or ask anything... (Enter to send, Shift+Enter for newline)"
+        class="flex-1 px-3.5 py-2.5 rounded-lg input-box border text-sm text-[#edd2b2] placeholder-[#785736] focus:outline-none focus:border-[#f79a32] resize-none max-h-40"></textarea>
+      <button id="sendBtn" type="submit" class="px-5 py-2.5 rounded-lg font-bold text-sm btn-accent shrink-0 transition">
+        Send
+      </button>
+    </form>
+  </footer>
+
+  <!-- Optional Endpoint Override Modal -->
+  <div id="endpointModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center p-4 z-50">
+    <div class="panel border rounded-xl w-full max-w-md p-5 space-y-4 text-xs shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold accent">Endpoint Override (Optional)</h2>
+        <button onclick="closeEndpointModal()" class="text-[#9e7850] hover:text-[#edd2b2]">✕</button>
+      </div>
+
+      <div>
+        <label class="block text-[#b58b5e] mb-1">Override Base URL</label>
+        <input id="endpointUrl" type="text" placeholder="Uses server default if blank"
+          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+      </div>
+
+      <div>
+        <label class="block text-[#b58b5e] mb-1">Model</label>
+        <input id="modelName" type="text" value="qwen2.5:14b-instruct-q4_K_M"
+          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+      </div>
+
+      <div>
+        <label class="block text-[#b58b5e] mb-1">Access PIN (if enabled on server)</label>
+        <input id="accessPin" type="password" placeholder="Leave blank if none"
+          class="w-full px-3 py-2 rounded input-box border text-[#edd2b2] focus:outline-none focus:border-[#f79a32]" />
+      </div>
+
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeEndpointModal()" class="px-3.5 py-2 rounded input-box border text-[#b58b5e]">
+          Cancel
+        </button>
+        <button type="button" onclick="saveEndpointConfig()" class="px-4 py-2 rounded font-bold btn-accent">
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    marked.setOptions({
+      highlight: (code, lang) => {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      }
+    });
+
+    let messages = JSON.parse(localStorage.getItem("ogpt_messages") || "[]");
+    let rollingSummary = localStorage.getItem("ogpt_summary") || "";
+    let totalTokensSaved = parseInt(localStorage.getItem("ogpt_saved") || "0", 10);
+
+    document.getElementById("endpointUrl").value = localStorage.getItem("ogpt_url") || "";
+    document.getElementById("modelName").value = localStorage.getItem("ogpt_model") || "qwen2.5:14b-instruct-q4_K_M";
+    document.getElementById("accessPin").value = localStorage.getItem("ogpt_pin") || "";
+
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 12 ? "Good morning." : hour < 17 ? "Good afternoon." : "Good evening.";
+    document.getElementById("greetingTitle").textContent = `${timeGreeting} What are we working on?`;
+
+    const textarea = document.getElementById("promptInput");
+    function autoResize() {
+      textarea.style.height = "auto";
+      textarea.style.height = Math.min(textarea.scrollHeight, 160) + "px";
+    }
+    textarea.addEventListener("input", autoResize);
+    textarea.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(e);
+      }
+    });
+
+    function openEndpointModal() {
+      const modal = document.getElementById("endpointModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+    }
+
+    function closeEndpointModal() {
+      const modal = document.getElementById("endpointModal");
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    }
+
+    function saveEndpointConfig() {
+      localStorage.setItem("ogpt_url", document.getElementById("endpointUrl").value.trim());
+      localStorage.setItem("ogpt_model", document.getElementById("modelName").value.trim() || "qwen2.5:14b-instruct-q4_K_M");
+      localStorage.setItem("ogpt_pin", document.getElementById("accessPin").value.trim());
+      closeEndpointModal();
+    }
+
+    function useStarter(promptText) {
+      textarea.value = promptText;
+      autoResize();
+      textarea.focus();
+    }
+
+    function clearChat() {
+      messages = [];
+      rollingSummary = "";
+      totalTokensSaved = 0;
+      localStorage.removeItem("ogpt_messages");
+      localStorage.removeItem("ogpt_summary");
+      localStorage.setItem("ogpt_saved", "0");
+      renderChat();
+    }
+
+    function estimateTokens(text) {
+      return Math.ceil((text || "").length / 4);
+    }
+
+    function addCopyButtons(container) {
+      container.querySelectorAll("pre").forEach(pre => {
+        if (pre.querySelector(".copy-btn")) return;
+        pre.style.position = "relative";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "copy-btn text-[11px] px-2 py-0.5 rounded panel border text-[#f79a32] hover:bg-[#3a2c1a]";
+        btn.style.position = "absolute";
+        btn.style.top = "8px";
+        btn.style.right = "8px";
+        btn.textContent = "Copy";
+        btn.onclick = () => {
+          const code = pre.querySelector("code")?.innerText || "";
+          navigator.clipboard.writeText(code);
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+        };
+        pre.appendChild(btn);
+      });
+    }
+
+    function renderChat() {
+      const welcome = document.getElementById("welcomeScreen");
+      const box = document.getElementById("chatBox");
+
+      if (messages.length === 0) {
+        welcome.classList.remove("hidden");
+        box.classList.add("hidden");
+        box.innerHTML = "";
+      } else {
+        welcome.classList.add("hidden");
+        box.classList.remove("hidden");
+        box.innerHTML = "";
+
+        messages.forEach(m => {
+          const div = document.createElement("div");
+          if (m.role === "user") {
+            div.className = "ml-auto max-w-xl px-4 py-3 rounded-xl bg-[#362919] border border-[#5c4529] text-sm text-[#f2d8b6] whitespace-pre-wrap";
+            div.textContent = m.content;
+          } else {
+            div.className = "mr-auto max-w-3xl px-4 py-3.5 rounded-xl panel border text-sm prose max-w-none";
+            div.innerHTML = m.content ? marked.parse(m.content) : "<span class='text-[#9e7850]'>Thinking...</span>";
+            addCopyButtons(div);
+          }
+          box.appendChild(div);
+        });
+      }
+
+      document.getElementById("tokenBadge").textContent = `Tokens saved: ~${totalTokensSaved}`;
+      document.getElementById("summaryStatus").textContent = rollingSummary ? "Context: Compressed + Last 6" : "Window: Last 6 msgs";
+      document.getElementById("chatViewport").scrollTop = document.getElementById("chatViewport").scrollHeight;
+    }
+
+    async function updateRollingSummary(endpointUrl, model, pin) {
+      if (messages.length < 6 || messages.length % 6 !== 0) return;
+      const olderChunk = messages.slice(-8, -2).map(m => `${m.role}: ${m.content}`).join("\n");
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Access-Pin": pin },
+          body: JSON.stringify({
+            endpoint_url: endpointUrl,
+            model,
+            stream: false,
+            temperature: 0.1,
+            max_tokens: 180,
+            messages: [
+              { role: "system", content: "Compress the prior summary and new lines into <=120 words of key facts, decisions, and technical context. No fluff." },
+              { role: "user", content: `Previous summary: ${rollingSummary || "None"}\n\nNew lines:\n${olderChunk}` }
+            ]
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          rollingSummary = data.choices?.[0]?.message?.content?.trim() || rollingSummary;
+          localStorage.setItem("ogpt_summary", rollingSummary);
+        }
+      } catch (_) {}
+    }
+
+    async function sendMessage(e) {
+      e.preventDefault();
+      const text = textarea.value.trim();
+      const endpointUrl = localStorage.getItem("ogpt_url") || "";
+      const model = localStorage.getItem("ogpt_model") || "qwen2.5:14b-instruct-q4_K_M";
+      const pin = localStorage.getItem("ogpt_pin") || "";
+
+      if (!text) return;
+
+      textarea.value = "";
+      autoResize();
+      messages.push({ role: "user", content: text });
+
+      const fullHistoryTokens = estimateTokens(messages.map(m => m.content).join(" "));
+      const recentWindow = messages.slice(-6);
+      const sysPrompt = `You are a direct, accurate technical assistant. Give clear, complete answers with zero filler.${rollingSummary ? " Context summary: " + rollingSummary : ""}`;
+      const sentTokens = estimateTokens(sysPrompt + recentWindow.map(m => m.content).join(" "));
+      if (fullHistoryTokens > sentTokens) {
+        totalTokensSaved += (fullHistoryTokens - sentTokens);
+        localStorage.setItem("ogpt_saved", String(totalTokensSaved));
+      }
+
+      messages.push({ role: "assistant", content: "" });
+      renderChat();
+
+      const btn = document.getElementById("sendBtn");
+      btn.disabled = true;
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Access-Pin": pin },
+          body: JSON.stringify({
+            endpoint_url: endpointUrl,
+            model,
+            stream: true,
+            temperature: 0.3,
+            options: { num_ctx: 8192 },
+            messages: [{ role: "system", content: sysPrompt }, ...recentWindow]
+          })
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          messages[messages.length - 1].content = `**Error (${response.status}):** ${errText}`;
+          renderChat();
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const payload = trimmed.slice(5).trim();
+            if (payload === "[DONE]") break;
+            try {
+              const json = JSON.parse(payload);
+              if (json.error) {
+                messages[messages.length - 1].content += `\n**Stream Error:** ${json.error}`;
+              } else {
+                const delta = json.choices?.[0]?.delta?.content || "";
+                messages[messages.length - 1].content += delta;
+              }
+              renderChat();
+            } catch (_) {}
+          }
+        }
+      } catch (err) {
+        messages[messages.length - 1].content = `**Connection Failed:** ${err.message}`;
+        renderChat();
+      } finally {
+        btn.disabled = false;
+        localStorage.setItem("ogpt_messages", JSON.stringify(messages));
+        updateRollingSummary(endpointUrl, model, pin);
+      }
+    }
+
+    renderChat();
+  </script>
+</body>
+</html>
