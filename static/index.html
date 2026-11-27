@@ -200,6 +200,22 @@
       flex-wrap: wrap;
     }
 
+    .session-controls, .action-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .session-select {
+      max-width: 180px;
+      font: 11px var(--font-mono);
+      color: var(--text-primary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      padding: 8px 10px;
+    }
+
     .theme-select, .field {
       font: 12px var(--font-mono);
       color: var(--text-primary);
@@ -447,6 +463,37 @@
       background: var(--bg-elevated);
     }
 
+    .action-row {
+      width: 100%;
+      justify-content: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .action-btn {
+      padding: 6px 9px;
+      font-size: 10px;
+    }
+
+    .mode-pill {
+      flex: 0 0 auto;
+      padding: 6px 9px;
+      font-size: 10px;
+      white-space: nowrap;
+      color: var(--accent-gold);
+      border-color: var(--border-strong);
+    }
+
+    .trim-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-muted);
+      font: 10px var(--font-mono);
+      white-space: nowrap;
+      padding: 0 4px;
+    }
+
     .msg-row {
       display: flex;
       flex-direction: column;
@@ -645,6 +692,7 @@
       .brand-title { font-size: 13px; }
       .telemetry { gap: 6px; justify-content: flex-end; }
       .theme-select { min-width: 118px; max-width: 140px; padding-left: 10px; font-size: 10px; }
+      .session-select { max-width: 112px; padding: 7px 8px; font-size: 10px; }
       .telemetry .pill, #logoutBtn { display: none; }
       #newChatBtn, #adminBtn { padding: 8px 11px; font-size: 10px; }
       .msg-row {
@@ -657,6 +705,8 @@
       .prompt-chip { padding: 10px 12px; }
       .composer-wrap { padding-bottom: 17px; }
       .composer { border-radius: 20px; padding: 9px 10px 9px 15px; }
+      .action-row { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; }
+      .action-btn { flex: 0 0 auto; }
       .composer-hint {
         flex-direction: column;
         gap: 2px;
@@ -704,6 +754,12 @@
         <span id="roleBadge" class="sr-only"></span>
         <button id="adminBtn" class="btn hidden" type="button">Admin</button>
         <button id="logoutBtn" class="btn" type="button">Sign out</button>
+        <div class="session-controls" aria-label="Chat sessions">
+          <select id="sessionSelect" class="session-select" aria-label="Current chat session"></select>
+          <button id="createSessionBtn" class="btn" type="button" title="Create session" aria-label="Create session">+</button>
+          <button id="renameSessionBtn" class="btn" type="button">Rename</button>
+          <button id="deleteSessionBtn" class="btn" type="button">Delete</button>
+        </div>
         <button id="newChatBtn" class="btn" type="button">New Chat</button>
       </div>
     </header>
@@ -734,6 +790,13 @@
     </main>
 
     <footer class="composer-wrap">
+      <div class="action-row" aria-label="DevOps quick actions">
+        <button class="btn action-btn" type="button" data-command="/k8s-debug">K8s debug</button>
+        <button class="btn action-btn" type="button" data-command="/tf-plan">Terraform plan</button>
+        <button class="btn action-btn" type="button" data-command="/docker-slim">Docker slim</button>
+        <button class="btn action-btn" type="button" data-command="/log-triage">Log triage</button>
+        <label class="trim-toggle"><input id="trimLogsToggle" type="checkbox" /> Trim Logs</label>
+      </div>
       <form id="chatForm" class="composer">
         <textarea
           id="promptInput"
@@ -741,12 +804,13 @@
           placeholder="Paste terminal output or ask a DevOps / SRE question..."
           required
         ></textarea>
+        <button id="detailModeBtn" class="btn mode-pill" type="button" aria-pressed="false" title="Switch to Detailed mode">Concise</button>
         <button id="stopBtn" class="btn btn-stop" type="button" style="display: none;">Stop</button>
         <button id="sendBtn" class="btn btn-primary" type="submit">Send</button>
       </form>
       <div class="composer-hint">
         <span id="tokenBadge">Tokens saved: ~0</span>
-        <span id="summaryStatus">Window: Last 6 msgs</span>
+        <span id="summaryStatus">Window: Last 4 msgs</span>
         <span>Enter to send · Shift+Enter for new line</span>
       </div>
     </footer>
@@ -761,6 +825,8 @@
       <textarea id="systemPromptInput" class="field" required></textarea>
       <label for="temperatureInput">Temperature (0–2)</label>
       <input id="temperatureInput" class="field" type="number" min="0" max="2" step="0.1" required />
+      <label for="defaultMaxTokensInput">Default max output tokens</label>
+      <input id="defaultMaxTokensInput" class="field" type="number" min="1" max="8192" step="1" required />
       <div id="settingsStatus" class="login-error" role="status"></div>
       <button class="btn btn-primary" type="submit">Save in memory</button>
     </form>
@@ -770,6 +836,8 @@
     const STORAGE_KEYS = {
       messages: "omnigpt_v2_messages",
       summary: "omnigpt_v2_summary",
+      sessions: "omnigpt_v2_sessions",
+      activeSession: "omnigpt_v2_active_session",
       saved: "omnigpt_v2_tokens_saved",
       token: "omnigpt_auth_token",
       role: "omnigpt_auth_role",
@@ -781,10 +849,17 @@
       try { localStorage.removeItem(k); } catch (_) {}
     });
 
-    let messages = loadMessages();
-    let rollingSummary = localStorage.getItem(STORAGE_KEYS.summary) || "";
-    let totalTokensSaved = Number(localStorage.getItem(STORAGE_KEYS.saved) || "0") || 0;
+    let sessions = loadSessions();
+    let activeSessionId = localStorage.getItem(STORAGE_KEYS.activeSession) || sessions[0].id;
+    if (!sessions.some(session => session.id === activeSessionId)) activeSessionId = sessions[0].id;
+    let activeSession = sessions.find(session => session.id === activeSessionId);
+    let messages = activeSession.messages;
+    let rollingSummary = activeSession.rollingSummary;
+    let sessionTokensUsed = Number(activeSession.tokensUsed) || 0;
+    let totalTokensSaved = Number(activeSession.tokensSaved) || 0;
+    let detailedMode = false;
     let activeController = null;
+    let pendingNewSession = false;
     let authToken = localStorage.getItem(STORAGE_KEYS.token) || "";
     let authRole = "";
 
@@ -797,7 +872,13 @@
     const input = document.getElementById("promptInput");
     const sendBtn = document.getElementById("sendBtn");
     const stopBtn = document.getElementById("stopBtn");
+    const detailModeBtn = document.getElementById("detailModeBtn");
     const newChatBtn = document.getElementById("newChatBtn");
+    const sessionSelect = document.getElementById("sessionSelect");
+    const createSessionBtn = document.getElementById("createSessionBtn");
+    const renameSessionBtn = document.getElementById("renameSessionBtn");
+    const deleteSessionBtn = document.getElementById("deleteSessionBtn");
+    const trimLogsToggle = document.getElementById("trimLogsToggle");
     const tokenBadge = document.getElementById("tokenBadge");
     const summaryStatus = document.getElementById("summaryStatus");
     const loginGate = document.getElementById("loginGate");
@@ -811,6 +892,7 @@
     const adminBackdrop = document.getElementById("adminBackdrop");
     const systemPromptInput = document.getElementById("systemPromptInput");
     const temperatureInput = document.getElementById("temperatureInput");
+    const defaultMaxTokensInput = document.getElementById("defaultMaxTokensInput");
 
     const greetings = [
       { text: "Hello.", language: "English" },
@@ -840,9 +922,23 @@
 
     const orbCanvas = document.getElementById("orbCanvas");
     const orbContext = orbCanvas.getContext("2d");
+    const orbStage = document.querySelector(".orb-stage");
     let orbWidth = 0;
     let orbHeight = 0;
     let orbPixelRatio = 1;
+    const orbPointer = { x: 0, y: 0, targetX: 0, targetY: 0, strength: 0, targetStrength: 0 };
+
+    orbStage.addEventListener("pointermove", event => {
+      const bounds = orbStage.getBoundingClientRect();
+      orbPointer.targetX = ((event.clientX - bounds.left) / bounds.width - 0.5) * 2;
+      orbPointer.targetY = ((event.clientY - bounds.top) / bounds.height - 0.5) * 2;
+      orbPointer.targetStrength = 1;
+    });
+    orbStage.addEventListener("pointerleave", () => {
+      orbPointer.targetX = 0;
+      orbPointer.targetY = 0;
+      orbPointer.targetStrength = 0;
+    });
 
     function resizeOrb() {
       const bounds = orbCanvas.getBoundingClientRect();
@@ -858,11 +954,16 @@
       if (!document.hidden && orbWidth && orbHeight && emptyState.style.display !== "none") {
         const ctx = orbContext;
         const time = timestamp * 0.00022;
+        orbPointer.x += (orbPointer.targetX - orbPointer.x) * 0.08;
+        orbPointer.y += (orbPointer.targetY - orbPointer.y) * 0.08;
+        orbPointer.strength += (orbPointer.targetStrength - orbPointer.strength) * 0.08;
         const cx = orbWidth / 2;
         const cy = orbHeight / 2 - 2;
         const radius = Math.min(orbWidth, orbHeight) * 0.39;
-        const rotateY = time;
-        const rotateX = -0.22 + Math.sin(time * 0.31) * 0.07;
+        const rotateY = time + orbPointer.x * orbPointer.strength * 0.14;
+        const rotateX = -0.22 + Math.sin(time * 0.31) * 0.07 - orbPointer.y * orbPointer.strength * 0.1;
+        const pointerX = cx + orbPointer.x * orbWidth * 0.22;
+        const pointerY = cy + orbPointer.y * orbHeight * 0.22;
         const accent = getComputedStyle(document.body).getPropertyValue("--accent-gold").trim() || "#b7d9ff";
         const glow = ctx.createRadialGradient(cx, cy, radius * 0.08, cx, cy, radius * 1.18);
         glow.addColorStop(0, "rgba(132, 178, 255, .18)");
@@ -884,7 +985,17 @@
           const yRot = y * Math.cos(rotateX) - zRot * Math.sin(rotateX);
           const depth = y * Math.sin(rotateX) + zRot * Math.cos(rotateX);
           const perspective = 3.2 / (3.2 - depth / radius);
-          return { x: cx + xRot * perspective, y: cy + yRot * perspective, depth };
+          let screenX = cx + xRot * perspective;
+          let screenY = cy + yRot * perspective;
+          if (orbPointer.strength > 0.01) {
+            const dx = screenX - pointerX;
+            const dy = screenY - pointerY;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const influence = Math.exp(-(distance * distance) / (radius * radius * 0.16)) * orbPointer.strength * 5;
+            screenX += dx / distance * influence;
+            screenY += dy / distance * influence;
+          }
+          return { x: screenX, y: screenY, depth };
         };
 
         const strokeCurve = (points, front) => {
@@ -901,7 +1012,7 @@
           }
           ctx.lineWidth = 0.75;
           ctx.strokeStyle = accent;
-          ctx.globalAlpha = front ? 0.78 : 0.18;
+          ctx.globalAlpha = (front ? 0.78 : 0.18) * (1 + orbPointer.strength * 0.2);
           ctx.stroke();
           ctx.globalAlpha = 1;
         };
@@ -995,6 +1106,7 @@
       document.getElementById("healthInfo").textContent = `Health: ${healthData.status}\nModel: ${healthData.model}\nAPI key configured: ${healthData.has_api_key}`;
       systemPromptInput.value = settings.system_prompt;
       temperatureInput.value = settings.temperature;
+      defaultMaxTokensInput.value = settings.default_max_tokens;
     }
 
     function closeAdmin() {
@@ -1012,12 +1124,129 @@
       }
     }
 
+    function createSession(messages = [], rollingSummary = "") {
+      return {
+        id: window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: "New Chat",
+        messages,
+        rollingSummary,
+        tokensUsed: 0,
+        tokensSaved: 0,
+        updatedAt: Date.now()
+      };
+    }
+
+    function loadSessions() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.sessions) || "null");
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter(session =>
+            session && typeof session.id === "string" && Array.isArray(session.messages)
+          ).map(session => ({
+            id: session.id,
+            title: typeof session.title === "string" && session.title.trim() ? session.title : "New Chat",
+            messages: session.messages.filter(message =>
+              message && ["user", "assistant"].includes(message.role) && typeof message.content === "string"
+            ).slice(-40),
+            rollingSummary: typeof session.rollingSummary === "string" ? session.rollingSummary : "",
+            tokensUsed: Number(session.tokensUsed) || 0,
+            tokensSaved: Number(session.tokensSaved) || 0,
+            updatedAt: Number(session.updatedAt) || Date.now()
+          }));
+          if (valid.length) return valid;
+        }
+      } catch (_) {}
+      const legacySession = createSession(loadMessages(), localStorage.getItem(STORAGE_KEYS.summary) || "");
+      legacySession.tokensSaved = Number(localStorage.getItem(STORAGE_KEYS.saved) || "0") || 0;
+      return [legacySession];
+    }
+
+    function renderSessionOptions() {
+      sessionSelect.replaceChildren();
+      [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).forEach(session => {
+        const option = document.createElement("option");
+        option.value = session.id;
+        option.textContent = session.title;
+        sessionSelect.appendChild(option);
+      });
+      sessionSelect.value = activeSessionId;
+    }
+
     function persistState() {
       try {
-        localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(messages.slice(-40)));
+        activeSession = sessions.find(session => session.id === activeSessionId) || activeSession;
+        activeSession.messages = messages.slice(-40);
+        activeSession.rollingSummary = rollingSummary || "";
+        activeSession.tokensUsed = sessionTokensUsed;
+        activeSession.tokensSaved = totalTokensSaved;
+        activeSession.updatedAt = Date.now();
+        messages = activeSession.messages;
+        localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(sessions));
+        localStorage.setItem(STORAGE_KEYS.activeSession, activeSessionId);
+        localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(messages));
         localStorage.setItem(STORAGE_KEYS.summary, rollingSummary || "");
         localStorage.setItem(STORAGE_KEYS.saved, String(totalTokensSaved));
-      } catch (_) {}
+        renderSessionOptions();
+      } catch (error) {
+        console.error("Could not save chat sessions", error);
+      }
+    }
+
+    function switchSession(id) {
+      if (activeController || !sessions.some(session => session.id === id)) return;
+      persistState();
+      activeSessionId = id;
+      activeSession = sessions.find(session => session.id === id);
+      messages = activeSession.messages;
+      rollingSummary = activeSession.rollingSummary;
+      sessionTokensUsed = activeSession.tokensUsed;
+      totalTokensSaved = activeSession.tokensSaved;
+      localStorage.setItem(STORAGE_KEYS.activeSession, id);
+      renderSessionOptions();
+      renderChat();
+    }
+
+    function startNewSession() {
+      if (activeController) {
+        pendingNewSession = true;
+        activeController.abort();
+        return;
+      }
+      persistState();
+      activeSession = createSession();
+      sessions.unshift(activeSession);
+      activeSessionId = activeSession.id;
+      messages = activeSession.messages;
+      rollingSummary = activeSession.rollingSummary;
+      sessionTokensUsed = activeSession.tokensUsed;
+      totalTokensSaved = activeSession.tokensSaved;
+      setGreeting();
+      persistState();
+      renderChat();
+      input.focus();
+    }
+
+    function renameActiveSession() {
+      if (activeController) return;
+      const title = window.prompt("Rename chat", activeSession.title);
+      if (!title || !title.trim()) return;
+      activeSession.title = title.trim().slice(0, 60);
+      persistState();
+      renderChat();
+    }
+
+    function deleteActiveSession() {
+      if (activeController || !window.confirm(`Delete "${activeSession.title}"?`)) return;
+      sessions = sessions.filter(session => session.id !== activeSessionId);
+      if (!sessions.length) sessions.push(createSession());
+      activeSession = sessions[0];
+      activeSessionId = activeSession.id;
+      messages = activeSession.messages;
+      rollingSummary = activeSession.rollingSummary;
+      sessionTokensUsed = activeSession.tokensUsed;
+      totalTokensSaved = activeSession.tokensSaved;
+      persistState();
+      renderChat();
     }
 
     function escapeHtml(str) {
@@ -1079,10 +1308,11 @@
     }
 
     function renderChat() {
-      tokenBadge.textContent = `Tokens saved: ~${totalTokensSaved}`;
+      tokenBadge.textContent = `Tokens: ${sessionTokensUsed} used · ~${totalTokensSaved} saved`;
       summaryStatus.textContent = rollingSummary
-        ? "Context: Summary + Last 6"
-        : "Window: Last 6 msgs";
+        ? "Summary saved · Last 4 msgs"
+        : "Window: Last 4 msgs";
+      summaryStatus.title = rollingSummary || "No rolling summary yet.";
 
       if (!messages.length) {
         messagesContainer.innerHTML = "";
@@ -1128,10 +1358,72 @@
       input.style.height = Math.min(input.scrollHeight, 220) + "px";
     }
 
+    const playbooks = {
+      "k8s-debug": "Debug this Kubernetes workload. Give a concise triage sequence with exact kubectl commands for pod status, events, previous/current logs, probes, resources, and relevant owner/controller; explain how to interpret likely findings. Do not suggest destructive changes.",
+      "tf-plan": "Review this Terraform plan for unintended changes, replacement or deletion risk, security concerns, and likely causes. Summarize the impact and recommend safe next checks; do not apply changes.",
+      "docker-slim": "Analyze this Dockerfile or image-build context and suggest safe ways to reduce image size and build time while preserving runtime behavior. Provide a revised Dockerfile or targeted edits and explain tradeoffs.",
+      "log-triage": "Triage these logs: identify the incident timeline, severity, likely root cause, supporting evidence, and next diagnostic steps. Distinguish facts from hypotheses and avoid repeating sensitive values."
+    };
+
+    function resolvePlaybookPrompt(text) {
+      const match = text.match(/^\/(k8s-debug|tf-plan|docker-slim|log-triage)\b(?:\s+([\s\S]*))?$/i);
+      if (!match) return text;
+      const target = playbooks[match[1].toLowerCase()];
+      return match[2]?.trim() ? `${target}\n\nContext:\n${match[2].trim()}` : target;
+    }
+
+    function trimLogInput(text) {
+      const timestampPrefix = /^\s*(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s+|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{4})?\s+)/i;
+      const stackFrame = /^\s*(?:at\s+.+|File\s+["'].+["'],\s+line\s+\d+|[\w./\\-]+\.(?:py|js|ts|java|go|rb):\d+(?::\d+)?(?:\s|$))/i;
+      const lines = text.split(/\r?\n/).map(line => line.replace(timestampPrefix, ""));
+      const compacted = [];
+      let stackFrames = [];
+      let omittedFrames = 0;
+
+      const flushStack = () => {
+        compacted.push(...stackFrames);
+        if (omittedFrames) compacted.push(`[${omittedFrames} repeated/deep stack frames collapsed]`);
+        stackFrames = [];
+        omittedFrames = 0;
+      };
+
+      for (const line of lines) {
+        if (stackFrame.test(line)) {
+          if (stackFrames[stackFrames.length - 1] === line || stackFrames.length >= 5) omittedFrames++;
+          else stackFrames.push(line);
+        } else {
+          flushStack();
+          compacted.push(line);
+        }
+      }
+      flushStack();
+
+      const result = [];
+      let previous = null;
+      let repeats = 0;
+      for (const line of compacted) {
+        if (line && line === previous) {
+          repeats++;
+          continue;
+        }
+        if (repeats) result.push(`[previous line repeated ${repeats} more times]`);
+        result.push(line);
+        previous = line || null;
+        repeats = 0;
+      }
+      if (repeats) result.push(`[previous line repeated ${repeats} more times]`);
+      return result.join("\n");
+    }
+
     async function sendMessage(promptText) {
-      const trimmed = (promptText || "").trim();
+      const targeted = resolvePlaybookPrompt((promptText || "").trim());
+      const trimmed = (trimLogsToggle.checked ? trimLogInput(targeted) : targeted).trim();
       if (!trimmed || activeController) return;
 
+      if (!messages.length && activeSession.title === "New Chat") {
+        activeSession.title = trimmed.split(/\r?\n/, 1)[0].slice(0, 60) || "New Chat";
+        renderSessionOptions();
+      }
       const historyBeforeTurn = [...messages];
       messages.push({ role: "user", content: trimmed });
       const assistantMessage = { role: "assistant", content: "" };
@@ -1142,18 +1434,17 @@
       stopBtn.style.display = "inline-block";
       renderChat();
 
-      const recentWindow = messages.slice(-7, -1); // up to 6 prior/current user+assistant msgs
-
       try {
         const response = await authenticatedFetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: activeController.signal,
           body: JSON.stringify({
-            messages: [...recentWindow, { role: "user", content: trimmed }],
+            messages: messages.slice(0, -1),
             summary: rollingSummary,
             stream: true,
-            temperature: 0.3
+            temperature: 0.3,
+            max_tokens: detailedMode ? 1400 : 450
           })
         });
 
@@ -1186,6 +1477,12 @@
               if (json.meta && typeof json.meta.tokens_saved_est === "number") {
                 totalTokensSaved += json.meta.tokens_saved_est;
               }
+              if (json.meta) {
+                const promptTokens = json.meta.prompt_tokens;
+                const completionTokens = json.meta.completion_tokens;
+                if (typeof promptTokens === "number" && promptTokens >= 0) sessionTokensUsed += promptTokens;
+                if (typeof completionTokens === "number" && completionTokens >= 0) sessionTokensUsed += completionTokens;
+              }
               if (json.error) {
                 assistantMessage.content += `\n**Stream Error:** ${json.error}`;
               } else {
@@ -1216,6 +1513,10 @@
         stopBtn.style.display = "none";
         persistState();
         renderChat();
+        if (pendingNewSession) {
+          pendingNewSession = false;
+          startNewSession();
+        }
         input.focus();
       }
     }
@@ -1240,6 +1541,15 @@
         sendMessage(text);
         input.value = "";
         autoResizeTextarea();
+      });
+    });
+
+    document.querySelectorAll(".action-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        const command = button.dataset.command.slice(1);
+        input.value = playbooks[command];
+        autoResizeTextarea();
+        input.focus();
       });
     });
 
@@ -1273,6 +1583,12 @@
     });
 
     themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
+    detailModeBtn.addEventListener("click", () => {
+      detailedMode = !detailedMode;
+      detailModeBtn.textContent = detailedMode ? "Detailed" : "Concise";
+      detailModeBtn.setAttribute("aria-pressed", String(detailedMode));
+      detailModeBtn.title = `Switch to ${detailedMode ? "Concise" : "Detailed"} mode`;
+    });
     adminBtn.addEventListener("click", () => {
       openAdmin().catch(error => {
         document.getElementById("healthInfo").textContent = error.message;
@@ -1291,7 +1607,8 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             system_prompt: systemPromptInput.value,
-            temperature: Number(temperatureInput.value)
+            temperature: Number(temperatureInput.value),
+            default_max_tokens: Number(defaultMaxTokensInput.value)
           })
         });
         const result = await response.json();
@@ -1306,17 +1623,11 @@
       }
     });
 
-    newChatBtn.addEventListener("click", () => {
-      if (activeController) {
-        activeController.abort();
-      }
-      messages = [];
-      rollingSummary = "";
-      setGreeting();
-      persistState();
-      renderChat();
-      input.focus();
-    });
+    sessionSelect.addEventListener("change", () => switchSession(sessionSelect.value));
+    createSessionBtn.addEventListener("click", startNewSession);
+    newChatBtn.addEventListener("click", startNewSession);
+    renameSessionBtn.addEventListener("click", renameActiveSession);
+    deleteSessionBtn.addEventListener("click", deleteActiveSession);
 
     input.addEventListener("input", autoResizeTextarea);
 
@@ -1336,6 +1647,7 @@
       sendMessage(val);
     });
 
+    renderSessionOptions();
     setTheme(localStorage.getItem(STORAGE_KEYS.theme) || "obsidian");
     renderChat();
     if (authToken) {

@@ -26,8 +26,9 @@ USER_ACCESS_KEY = os.getenv("USER_ACCESS_KEY", "")
 AUTH_SECRET = os.getenv("AUTH_SECRET", "")
 AUTH_TOKEN_TTL_SECONDS = 12 * 60 * 60
 
-RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "6"))
-SUMMARY_TRIGGER_MESSAGES = int(os.getenv("SUMMARY_TRIGGER_MESSAGES", "10"))
+RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "4"))
+SUMMARY_TRIGGER_MESSAGES = int(os.getenv("SUMMARY_TRIGGER_MESSAGES", "8"))
+DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "650"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "180.0"))
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,11 +40,12 @@ INDEX_FILE = (
 )
 
 SYSTEM_PROMPT = (
-    "You are OmniGPT, a direct, low-token DevOps and SRE technical assistant. "
-    "Give concise, accurate, actionable answers with clear commands and zero fluff."
+    "You are OmniGPT, a concise DevOps and SRE assistant. Return direct commands, "
+    "minimal diffs, and terse bullet points. Omit introductions and conclusions."
 )
 ACTIVE_SYSTEM_PROMPT = SYSTEM_PROMPT
 ACTIVE_TEMPERATURE = 0.3
+ACTIVE_DEFAULT_MAX_TOKENS = DEFAULT_MAX_TOKENS
 
 app = FastAPI(title="OmniGPT", version="2.0.0")
 
@@ -68,7 +70,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     summary: str = ""
     stream: bool = True
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float | None = None
 
 
@@ -81,6 +83,7 @@ class LoginRequest(BaseModel):
 class AdminSettings(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=12000)
     temperature: float = Field(ge=0, le=2)
+    default_max_tokens: int = Field(ge=1, le=8192)
 
 
 def _b64url_encode(value: bytes) -> str:
@@ -165,7 +168,29 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, An
         if m.content and m.content.strip()
     ]
 
-    window = clean_msgs[-RECENT_WINDOW_MESSAGES:] if RECENT_WINDOW_MESSAGES > 0 else clean_msgs
+    latest_user_index = next(
+        (index for index in range(len(clean_msgs) - 1, -1, -1) if clean_msgs[index]["role"] == "user"),
+        None,
+    )
+    window_indices = (
+        list(range(max(0, len(clean_msgs) - RECENT_WINDOW_MESSAGES), len(clean_msgs)))
+        if RECENT_WINDOW_MESSAGES > 0
+        else list(range(len(clean_msgs)))
+    )
+    if latest_user_index is not None and latest_user_index not in window_indices:
+        if RECENT_WINDOW_MESSAGES > 0:
+            window_indices = sorted([*window_indices[1:], latest_user_index])
+        else:
+            window_indices.append(latest_user_index)
+    window = [
+        {
+            "role": clean_msgs[index]["role"],
+            "content": clean_msgs[index]["content"]
+            if index == latest_user_index
+            else clean_msgs[index]["content"][:1200],
+        }
+        for index in window_indices
+    ]
     messages: list[dict[str, str]] = [{"role": "system", "content": ACTIVE_SYSTEM_PROMPT}]
 
     if req.summary and req.summary.strip():
@@ -184,9 +209,10 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, An
         "stream": stream,
         "temperature": ACTIVE_TEMPERATURE,
         "reasoning_effort": "low",
+        "max_tokens": req.max_tokens if req.max_tokens is not None else ACTIVE_DEFAULT_MAX_TOKENS,
     }
-    if req.max_tokens is not None:
-        payload["max_tokens"] = req.max_tokens
+    if stream:
+        payload["stream_options"] = {"include_usage": True}
 
     older_count = max(0, len(clean_msgs) - len(window))
     estimated_tokens_saved = older_count * 45
@@ -292,7 +318,11 @@ async def auth_me(request: Request):
 @app.get("/api/admin/settings")
 async def get_admin_settings(request: Request):
     require_admin(request)
-    return {"system_prompt": ACTIVE_SYSTEM_PROMPT, "temperature": ACTIVE_TEMPERATURE}
+    return {
+        "system_prompt": ACTIVE_SYSTEM_PROMPT,
+        "temperature": ACTIVE_TEMPERATURE,
+        "default_max_tokens": ACTIVE_DEFAULT_MAX_TOKENS,
+    }
 
 
 @app.put("/api/admin/settings")
@@ -301,10 +331,15 @@ async def update_admin_settings(req: AdminSettings, request: Request):
     prompt = req.system_prompt.strip()
     if not prompt:
         raise HTTPException(status_code=422, detail="System prompt cannot be empty")
-    global ACTIVE_SYSTEM_PROMPT, ACTIVE_TEMPERATURE
+    global ACTIVE_SYSTEM_PROMPT, ACTIVE_TEMPERATURE, ACTIVE_DEFAULT_MAX_TOKENS
     ACTIVE_SYSTEM_PROMPT = prompt
     ACTIVE_TEMPERATURE = req.temperature
-    return {"system_prompt": ACTIVE_SYSTEM_PROMPT, "temperature": ACTIVE_TEMPERATURE}
+    ACTIVE_DEFAULT_MAX_TOKENS = req.default_max_tokens
+    return {
+        "system_prompt": ACTIVE_SYSTEM_PROMPT,
+        "temperature": ACTIVE_TEMPERATURE,
+        "default_max_tokens": ACTIVE_DEFAULT_MAX_TOKENS,
+    }
 
 
 @app.get("/api/admin/health")
@@ -356,6 +391,7 @@ async def chat_stream(
 
     async def event_generator():
         yield f"data: {json.dumps({'meta': {'tokens_saved_est': tokens_saved}})}\n\n"
+        usage: dict[str, Any] | None = None
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as resp:
@@ -375,6 +411,8 @@ async def chat_stream(
                                 break
                             try:
                                 parsed = json.loads(raw_chunk)
+                                if isinstance(parsed.get("usage"), dict):
+                                    usage = parsed["usage"]
                                 delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
                                 token = delta.get("content")
                                 if token:
@@ -392,7 +430,11 @@ async def chat_stream(
                         client, url, headers, payload["model"], req.summary, older
                     )
 
-            yield f"data: {json.dumps({'done': True, 'summary': updated_summary})}\n\n"
+            usage_meta = {
+                "prompt_tokens": usage.get("prompt_tokens") if usage else None,
+                "completion_tokens": usage.get("completion_tokens") if usage else None,
+            }
+            yield f"data: {json.dumps({'done': True, 'summary': updated_summary, 'meta': usage_meta})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
