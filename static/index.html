@@ -405,11 +405,14 @@
       place-items: center;
       margin: -4px 0 3px;
       isolation: isolate;
+      pointer-events: auto;
+      touch-action: none;
     }
     .orb-stage::after {
       content: "";
       position: absolute;
       z-index: -1;
+      pointer-events: none;
       width: 72%;
       height: 34%;
       left: 14%;
@@ -418,7 +421,13 @@
       background: radial-gradient(ellipse, rgba(79, 159, 255, .2), rgba(109, 93, 226, .09) 40%, transparent 74%);
       filter: blur(18px);
     }
-    #orbCanvas { width: 100%; height: 100%; display: block; }
+    #orbCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: auto;
+      touch-action: none;
+    }
     .language-tag {
       display: inline-flex;
       align-items: center;
@@ -482,6 +491,18 @@
       white-space: nowrap;
       color: var(--accent-gold);
       border-color: var(--border-strong);
+    }
+
+    .reply-actions, .thread-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .markdown-btn {
+      padding: 5px 8px;
+      font-size: 10px;
+      white-space: nowrap;
     }
 
     .trim-toggle {
@@ -740,7 +761,7 @@
 
       <div class="telemetry">
         <select id="themeSelect" class="theme-select" aria-label="Theme">
-          <option value="obsidian">Obsidian Wave Orb</option>
+          <option value="obsidian">Obsidian Holo Core</option>
           <option value="kimbie">Kimbie Dark</option>
           <option value="matte-black">Pure Matte Black</option>
           <option value="frosted-glass">Frosted Glass</option>
@@ -811,6 +832,11 @@
       <div class="composer-hint">
         <span id="tokenBadge">Tokens saved: ~0</span>
         <span id="summaryStatus">Window: Last 4 msgs</span>
+        <div class="thread-actions">
+          <button id="copyThreadBtn" class="btn markdown-btn" type="button" disabled>Copy MD</button>
+          <button id="exportThreadBtn" class="btn markdown-btn" type="button" disabled>Export .md</button>
+        </div>
+        <span id="exportStatus" role="status" aria-live="polite"></span>
         <span>Enter to send · Shift+Enter for new line</span>
       </div>
     </footer>
@@ -820,6 +846,7 @@
   <aside id="adminDrawer" class="admin-drawer hidden" aria-label="Admin settings">
     <div class="admin-head"><h2>Admin settings</h2><button id="closeAdminBtn" class="btn" type="button">Close</button></div>
     <div id="healthInfo" class="admin-health">Loading health…</div>
+    <div id="usageInfo" class="admin-health">Loading usage…</div>
     <form id="settingsForm">
       <label for="systemPromptInput">System prompt</label>
       <textarea id="systemPromptInput" class="field" required></textarea>
@@ -827,6 +854,10 @@
       <input id="temperatureInput" class="field" type="number" min="0" max="2" step="0.1" required />
       <label for="defaultMaxTokensInput">Default max output tokens</label>
       <input id="defaultMaxTokensInput" class="field" type="number" min="1" max="8192" step="1" required />
+      <label for="sessionMessageCapInput">User messages per chat session</label>
+      <input id="sessionMessageCapInput" class="field" type="number" min="1" max="10000" step="1" required />
+      <label for="sessionTokenCapInput">User tokens per chat session</label>
+      <input id="sessionTokenCapInput" class="field" type="number" min="1" max="10000000" step="1" required />
       <div id="settingsStatus" class="login-error" role="status"></div>
       <button class="btn btn-primary" type="submit">Save in memory</button>
     </form>
@@ -893,6 +924,12 @@
     const systemPromptInput = document.getElementById("systemPromptInput");
     const temperatureInput = document.getElementById("temperatureInput");
     const defaultMaxTokensInput = document.getElementById("defaultMaxTokensInput");
+    const sessionMessageCapInput = document.getElementById("sessionMessageCapInput");
+    const sessionTokenCapInput = document.getElementById("sessionTokenCapInput");
+    const usageInfo = document.getElementById("usageInfo");
+    const exportStatus = document.getElementById("exportStatus");
+    const copyThreadBtn = document.getElementById("copyThreadBtn");
+    const exportThreadBtn = document.getElementById("exportThreadBtn");
 
     const greetings = [
       { text: "Hello.", language: "English" },
@@ -926,19 +963,71 @@
     let orbWidth = 0;
     let orbHeight = 0;
     let orbPixelRatio = 1;
-    const orbPointer = { x: 0, y: 0, targetX: 0, targetY: 0, strength: 0, targetStrength: 0 };
-
-    orbStage.addEventListener("pointermove", event => {
-      const bounds = orbStage.getBoundingClientRect();
-      orbPointer.targetX = ((event.clientX - bounds.left) / bounds.width - 0.5) * 2;
-      orbPointer.targetY = ((event.clientY - bounds.top) / bounds.height - 0.5) * 2;
-      orbPointer.targetStrength = 1;
+    const orbPointer = {
+      x: 0, y: 0, targetX: 0, targetY: 0,
+      strength: 0, targetStrength: 0, pulse: 0, targetPulse: 0
+    };
+    const orbNodeCount = 112;
+    const orbNodes = Array.from({ length: orbNodeCount }, (_, index) => {
+      const y = 1 - 2 * (index + 0.5) / orbNodeCount;
+      const ring = Math.sqrt(1 - y * y);
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
+      const shell = 0.62 + ((index * 73) % orbNodeCount) / (orbNodeCount - 1) * 0.36;
+      return {
+        x: Math.cos(angle) * ring * shell,
+        y: y * shell,
+        z: Math.sin(angle) * ring * shell,
+        warm: index % 4 === 0
+      };
     });
-    orbStage.addEventListener("pointerleave", () => {
+    const orbLinks = [];
+    for (let first = 0; first < orbNodes.length; first++) {
+      for (let second = first + 1; second < orbNodes.length; second++) {
+        const dx = orbNodes[first].x - orbNodes[second].x;
+        const dy = orbNodes[first].y - orbNodes[second].y;
+        const dz = orbNodes[first].z - orbNodes[second].z;
+        if (dx * dx + dy * dy + dz * dz < 0.38 * 0.38) {
+          orbLinks.push([first, second]);
+        }
+      }
+    }
+    const orbSpikes = Array.from({ length: 20 }, (_, index) => {
+      const y = 1 - 2 * (index + 0.5) / 20;
+      const ring = Math.sqrt(1 - y * y);
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
+      return { x: Math.cos(angle) * ring, y, z: Math.sin(angle) * ring };
+    });
+    let previousOrbFrame = 0;
+
+    function updateOrbPointer(event) {
+      const bounds = orbStage.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      orbPointer.targetX = Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2));
+      orbPointer.targetY = Math.max(-1, Math.min(1, ((event.clientY - bounds.top) / bounds.height - 0.5) * 2));
+      orbPointer.targetStrength = 1;
+    }
+
+    function releaseOrbPointer() {
       orbPointer.targetX = 0;
       orbPointer.targetY = 0;
       orbPointer.targetStrength = 0;
+      orbPointer.targetPulse = 0;
+    }
+
+    orbStage.addEventListener("pointermove", updateOrbPointer, { passive: true });
+    orbStage.addEventListener("pointerdown", event => {
+      updateOrbPointer(event);
+      orbPointer.targetPulse = 1;
+    }, { passive: true });
+    orbStage.addEventListener("pointerleave", releaseOrbPointer);
+    orbStage.addEventListener("pointerup", event => {
+      if (event.pointerType === "touch") releaseOrbPointer();
     });
+    orbStage.addEventListener("pointercancel", releaseOrbPointer);
+    orbStage.addEventListener("mousemove", event => {
+      if (!window.PointerEvent) updateOrbPointer(event);
+    }, { passive: true });
+    orbStage.addEventListener("mouseleave", releaseOrbPointer);
 
     function resizeOrb() {
       const bounds = orbCanvas.getBoundingClientRect();
@@ -953,99 +1042,263 @@
     function drawOrb(timestamp) {
       if (!document.hidden && orbWidth && orbHeight && emptyState.style.display !== "none") {
         const ctx = orbContext;
-        const time = timestamp * 0.00022;
-        orbPointer.x += (orbPointer.targetX - orbPointer.x) * 0.08;
-        orbPointer.y += (orbPointer.targetY - orbPointer.y) * 0.08;
-        orbPointer.strength += (orbPointer.targetStrength - orbPointer.strength) * 0.08;
+        const time = timestamp * 0.001;
+        const elapsed = previousOrbFrame ? Math.min(50, timestamp - previousOrbFrame) : 1000 / 60;
+        previousOrbFrame = timestamp;
+        const ease = 1 - Math.exp(-elapsed / 130);
+        orbPointer.x += (orbPointer.targetX - orbPointer.x) * ease;
+        orbPointer.y += (orbPointer.targetY - orbPointer.y) * ease;
+        orbPointer.strength += (orbPointer.targetStrength - orbPointer.strength) * ease;
+        orbPointer.pulse += (orbPointer.targetPulse - orbPointer.pulse) * (1 - Math.exp(-elapsed / 100));
         const cx = orbWidth / 2;
         const cy = orbHeight / 2 - 2;
-        const radius = Math.min(orbWidth, orbHeight) * 0.39;
-        const rotateY = time + orbPointer.x * orbPointer.strength * 0.14;
-        const rotateX = -0.22 + Math.sin(time * 0.31) * 0.07 - orbPointer.y * orbPointer.strength * 0.1;
-        const pointerX = cx + orbPointer.x * orbWidth * 0.22;
-        const pointerY = cy + orbPointer.y * orbHeight * 0.22;
-        const accent = getComputedStyle(document.body).getPropertyValue("--accent-gold").trim() || "#b7d9ff";
-        const glow = ctx.createRadialGradient(cx, cy, radius * 0.08, cx, cy, radius * 1.18);
-        glow.addColorStop(0, "rgba(132, 178, 255, .18)");
-        glow.addColorStop(0.55, "rgba(113, 120, 236, .07)");
-        glow.addColorStop(1, "rgba(6, 7, 13, 0)");
+        const radius = Math.min(orbWidth, orbHeight) * 0.34;
+        const accent = getComputedStyle(document.body);
+        const palette = [
+          accent.getPropertyValue("--accent-gold").trim() || "#58e5ff",
+          accent.getPropertyValue("--accent-amber").trim() || "#ffb84d",
+          accent.getPropertyValue("--accent-rust").trim() || "#ff405d"
+        ];
+        const warmAccent = "#ffbf66";
+        const rgb = color => {
+          const value = color.replace("#", "");
+          const hex = value.length === 3 ? value.split("").map(part => part + part).join("") : value.slice(0, 6);
+          const number = Number.parseInt(hex, 16);
+          return Number.isNaN(number)
+            ? [120, 205, 255]
+            : [(number >> 16) & 255, (number >> 8) & 255, number & 255];
+        };
+        const rgba = (color, alpha) => {
+          const [red, green, blue] = rgb(color);
+          return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+        };
+        const rotateX = -0.26 - orbPointer.y * orbPointer.strength * 0.34 + Math.sin(time * 0.23) * 0.035;
+        const rotateY = orbPointer.x * orbPointer.strength * 0.38 + time * 0.08;
+        const rotateZ = Math.sin(time * 0.18) * 0.08;
+        const centerX = cx + orbPointer.x * radius * 0.045;
+        const centerY = cy + orbPointer.y * radius * 0.045;
+
         ctx.clearRect(0, 0, orbWidth, orbHeight);
+        const glow = ctx.createRadialGradient(centerX, centerY, radius * 0.04, centerX, centerY, radius * 1.32);
+        glow.addColorStop(0, rgba(palette[0], 0.28 + orbPointer.pulse * 0.16));
+        glow.addColorStop(0.42, rgba(palette[1], 0.13));
+        glow.addColorStop(0.76, rgba(palette[2], 0.08));
+        glow.addColorStop(1, "rgba(6, 7, 13, 0)");
         ctx.fillStyle = glow;
         ctx.fillRect(0, 0, orbWidth, orbHeight);
 
-        const project = (latitude, longitude) => {
-          const wave = Math.sin(latitude * 5 + time * 1.5) * Math.cos(longitude * 4 - time) * 4;
-          const r = radius + wave;
-          const cosLat = Math.cos(latitude);
-          const x = r * cosLat * Math.sin(longitude);
-          const y = r * Math.sin(latitude);
-          const z = r * cosLat * Math.cos(longitude);
-          const xRot = x * Math.cos(rotateY) + z * Math.sin(rotateY);
-          const zRot = z * Math.cos(rotateY) - x * Math.sin(rotateY);
-          const yRot = y * Math.cos(rotateX) - zRot * Math.sin(rotateX);
-          const depth = y * Math.sin(rotateX) + zRot * Math.cos(rotateX);
-          const perspective = 3.2 / (3.2 - depth / radius);
-          let screenX = cx + xRot * perspective;
-          let screenY = cy + yRot * perspective;
-          if (orbPointer.strength > 0.01) {
-            const dx = screenX - pointerX;
-            const dy = screenY - pointerY;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const influence = Math.exp(-(distance * distance) / (radius * radius * 0.16)) * orbPointer.strength * 5;
-            screenX += dx / distance * influence;
-            screenY += dy / distance * influence;
-          }
-          return { x: screenX, y: screenY, depth };
+        const project = (x, y, z) => {
+          const x1 = x * Math.cos(rotateZ) - y * Math.sin(rotateZ);
+          const y1 = x * Math.sin(rotateZ) + y * Math.cos(rotateZ);
+          const x2 = x1 * Math.cos(rotateY) + z * Math.sin(rotateY);
+          const z2 = z * Math.cos(rotateY) - x1 * Math.sin(rotateY);
+          const y2 = y1 * Math.cos(rotateX) - z2 * Math.sin(rotateX);
+          const depth = y1 * Math.sin(rotateX) + z2 * Math.cos(rotateX);
+          const perspective = 3.1 / (3.1 - depth / radius);
+          return { x: centerX + x2 * perspective, y: centerY + y2 * perspective, depth };
         };
 
-        const strokeCurve = (points, front) => {
-          let open = false;
+        const drawCurve = (coordinates, color, alpha, width) => {
+          let depthTotal = 0;
           ctx.beginPath();
-          for (const point of points) {
-            if ((point.depth >= 0) === front) {
-              if (!open) ctx.moveTo(point.x, point.y);
-              else ctx.lineTo(point.x, point.y);
-              open = true;
-            } else {
-              open = false;
-            }
-          }
-          ctx.lineWidth = 0.75;
-          ctx.strokeStyle = accent;
-          ctx.globalAlpha = (front ? 0.78 : 0.18) * (1 + orbPointer.strength * 0.2);
+          coordinates.forEach((coordinate, index) => {
+            const point = project(coordinate[0], coordinate[1], coordinate[2]);
+            depthTotal += point.depth;
+            if (!index) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          const depth = coordinates.length ? depthTotal / coordinates.length : 0;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = width;
+          ctx.globalAlpha = alpha * (0.42 + Math.max(0, depth / radius) * 0.58);
           ctx.stroke();
           ctx.globalAlpha = 1;
         };
 
-        const drawCurve = points => {
-          strokeCurve(points, false);
-          strokeCurve(points, true);
+        const drawSphereGrid = (sphereRadius, latitudeCount, longitudeCount, color, alpha, width, roughness = 0) => {
+          const steps = 56;
+          for (let latitudeIndex = 1; latitudeIndex < latitudeCount; latitudeIndex++) {
+            const latitude = -Math.PI / 2 + Math.PI * latitudeIndex / latitudeCount;
+            const coordinates = [];
+            for (let step = 0; step <= steps; step++) {
+              const angle = Math.PI * 2 * step / steps;
+              const ripple = 1 + roughness * (
+                Math.sin(angle * 7 + latitudeIndex * 1.7) +
+                Math.cos(angle * 13 - latitudeIndex) * 0.45
+              );
+              const ring = sphereRadius * Math.cos(latitude) * ripple;
+              coordinates.push([
+                ring * Math.cos(angle),
+                sphereRadius * Math.sin(latitude) * ripple,
+                ring * Math.sin(angle)
+              ]);
+            }
+            drawCurve(coordinates, color, alpha, width);
+          }
+          for (let longitude = 0; longitude < longitudeCount; longitude++) {
+            const angle = Math.PI * longitude / longitudeCount;
+            const coordinates = [];
+            for (let step = 0; step <= steps; step++) {
+              const latitude = -Math.PI / 2 + Math.PI * step / steps;
+              const ripple = 1 + roughness * (
+                Math.sin(latitude * 11 + longitude) +
+                Math.cos(latitude * 17 - longitude * 0.7) * 0.4
+              );
+              const ring = sphereRadius * Math.cos(latitude) * ripple;
+              coordinates.push([
+                ring * Math.cos(angle),
+                sphereRadius * Math.sin(latitude) * ripple,
+                ring * Math.sin(angle)
+              ]);
+            }
+            drawCurve(coordinates, color, alpha, width);
+          }
         };
 
-        for (let latIndex = -7; latIndex <= 7; latIndex++) {
-          const latitude = (latIndex / 8) * (Math.PI / 2);
-          const points = [];
-          for (let step = 0; step <= 80; step++) {
-            points.push(project(latitude, (step / 80) * Math.PI * 2));
+        const drawRing = (rx, ry, planeX, planeY, spin, color, alpha, segments, width) => {
+          for (let segment = 0; segment < segments; segment++) {
+            const arc = (Math.PI * 2) / segments;
+            const start = segment * arc + arc * 0.09 + spin;
+            const end = (segment + 1) * arc - arc * 0.09 + spin;
+            const points = [];
+            let depthTotal = 0;
+            const steps = Math.max(8, Math.ceil((end - start) * 18));
+            for (let step = 0; step <= steps; step++) {
+              const angle = start + ((end - start) * step) / steps;
+              const x = rx * Math.cos(angle);
+              const y = ry * Math.sin(angle);
+              const yTilt = y * Math.cos(planeX);
+              const zTilt = y * Math.sin(planeX);
+              const point = project(
+                x * Math.cos(planeY) + zTilt * Math.sin(planeY),
+                yTilt,
+                zTilt * Math.cos(planeY) - x * Math.sin(planeY)
+              );
+              points.push(point);
+              depthTotal += point.depth;
+            }
+            ctx.beginPath();
+            points.forEach((point, index) => {
+              if (!index) ctx.moveTo(point.x, point.y);
+              else ctx.lineTo(point.x, point.y);
+            });
+            ctx.lineWidth = width;
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = alpha * (depthTotal >= 0 ? 1 : 0.34) * (1 + orbPointer.strength * 0.22);
+            ctx.stroke();
           }
-          drawCurve(points);
-        }
-        for (let line = 0; line < 28; line++) {
-          const longitude = (line / 28) * Math.PI * 2;
-          const points = [];
-          for (let step = 0; step <= 64; step++) {
-            points.push(project(-Math.PI / 2 + (step / 64) * Math.PI, longitude));
-          }
-          drawCurve(points);
+          ctx.globalAlpha = 1;
+        };
+
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        const coreRadius = radius * (0.44 + Math.sin(time * 2.4) * 0.012 + orbPointer.pulse * 0.035);
+        const plasma = ctx.createRadialGradient(
+          centerX - coreRadius * 0.2, centerY - coreRadius * 0.24, coreRadius * 0.02,
+          centerX, centerY, coreRadius * 1.9
+        );
+        plasma.addColorStop(0, "rgba(255,255,255,.98)");
+        plasma.addColorStop(0.13, rgba(palette[0], 0.98));
+        plasma.addColorStop(0.45, rgba(palette[1], 0.72));
+        plasma.addColorStop(0.8, rgba(palette[2], 0.24));
+        plasma.addColorStop(1, rgba(palette[2], 0));
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, coreRadius * 1.9, 0, Math.PI * 2);
+        ctx.fillStyle = plasma;
+        ctx.fill();
+
+        const coreSurface = ctx.createRadialGradient(
+          centerX - coreRadius * 0.24, centerY - coreRadius * 0.3, coreRadius * 0.02,
+          centerX, centerY, coreRadius
+        );
+        coreSurface.addColorStop(0, "rgba(255,255,255,.95)");
+        coreSurface.addColorStop(0.22, rgba(palette[0], 0.86));
+        coreSurface.addColorStop(0.7, rgba(palette[1], 0.42));
+        coreSurface.addColorStop(1, rgba(palette[2], 0.08));
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
+        ctx.fillStyle = coreSurface;
+        ctx.fill();
+        drawSphereGrid(coreRadius * 0.94, 9, 14, palette[0], 0.34, 0.55, 0.012);
+
+        for (let pulse = 0; pulse < 3; pulse++) {
+          ctx.beginPath();
+          ctx.ellipse(
+            centerX, centerY, coreRadius * (0.42 + pulse * 0.16),
+            coreRadius * (0.16 + pulse * 0.045),
+            time * (pulse % 2 ? -0.32 : 0.27), 0, Math.PI * 2
+          );
+          ctx.strokeStyle = palette[pulse];
+          ctx.lineWidth = pulse === 0 ? 1.1 : 0.7;
+          ctx.globalAlpha = 0.68 - pulse * 0.13;
+          ctx.stroke();
         }
 
+        const shellRadius = radius * 1.02;
+        drawSphereGrid(shellRadius, 7, 10, palette[0], 0.12, 0.62);
         ctx.beginPath();
-        ctx.ellipse(cx, cy + radius * 0.87, radius * 0.72, radius * 0.16, -0.06, 0, Math.PI * 2);
+        ctx.ellipse(centerX, centerY, shellRadius, shellRadius * 0.96, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(palette[0], 0.24);
         ctx.lineWidth = 0.8;
-        ctx.strokeStyle = accent;
-        ctx.globalAlpha = 0.22;
         ctx.stroke();
+        drawRing(shellRadius, shellRadius * 0.72, 1.05, 0.16, time * 0.1, palette[0], 0.3, 5, 0.85);
+        drawRing(shellRadius * 0.72, shellRadius, 0.18, 0.92, -time * 0.08, warmAccent, 0.24, 6, 0.75);
+
+        const projectedNodes = orbNodes.map(node =>
+          project(node.x * radius, node.y * radius, node.z * radius)
+        );
+        for (const [first, second] of orbLinks) {
+          const start = projectedNodes[first];
+          const end = projectedNodes[second];
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.strokeStyle = (first + second) % 5 === 0 ? warmAccent : palette[0];
+          ctx.lineWidth = 0.55;
+          ctx.globalAlpha = 0.035 + Math.max(0, (start.depth + end.depth) / (2 * radius)) * 0.09;
+          ctx.stroke();
+        }
+
+        for (let index = 0; index < orbSpikes.length; index++) {
+          const spike = orbSpikes[index];
+          const length = 1.16 + (index % 3) * 0.045;
+          const start = project(spike.x * shellRadius * 0.97, spike.y * shellRadius * 0.97, spike.z * shellRadius * 0.97);
+          const end = project(spike.x * radius * length, spike.y * radius * length, spike.z * radius * length);
+          const color = index % 4 === 0 ? warmAccent : palette[0];
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = index % 4 === 0 ? 0.95 : 0.7;
+          ctx.globalAlpha = 0.18 + Math.max(0, end.depth / radius) * 0.32;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(end.x, end.y, index % 4 === 0 ? 1.8 : 1.35, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = 0.62 + Math.max(0, end.depth / radius) * 0.3;
+          ctx.fill();
+        }
+
+        for (let index = 0; index < projectedNodes.length; index++) {
+          const point = projectedNodes[index];
+          const node = orbNodes[index];
+          const color = node.warm ? warmAccent : palette[0];
+          const frontness = Math.max(0.18, Math.min(1, 0.52 + point.depth / radius * 0.48));
+          const dotRadius = 0.8 + frontness * 1.05;
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, dotRadius * 2.6, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = frontness * 0.16;
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, dotRadius, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = frontness * (node.warm ? 0.94 : 0.82);
+          ctx.fill();
+        }
+        ctx.restore();
         ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
       }
       requestAnimationFrame(drawOrb);
     }
@@ -1093,20 +1346,30 @@
       adminDrawer.classList.remove("hidden");
       adminBackdrop.classList.remove("hidden");
       document.getElementById("settingsStatus").textContent = "";
-      const [healthResponse, settingsResponse] = await Promise.all([
+      const [healthResponse, settingsResponse, usageResponse] = await Promise.all([
         authenticatedFetch("/api/admin/health"),
-        authenticatedFetch("/api/admin/settings")
+        authenticatedFetch("/api/admin/settings"),
+        authenticatedFetch("/api/admin/usage")
       ]);
-      if (healthResponse.status === 401 || settingsResponse.status === 401) {
+      if ([healthResponse, settingsResponse, usageResponse].some(response => response.status === 401)) {
         clearAuthentication();
         return;
       }
-      if (!healthResponse.ok || !settingsResponse.ok) throw new Error("Could not load admin settings");
-      const [healthData, settings] = await Promise.all([healthResponse.json(), settingsResponse.json()]);
+      if ([healthResponse, settingsResponse, usageResponse].some(response => !response.ok)) {
+        throw new Error("Could not load admin settings or usage");
+      }
+      const [healthData, settings, usage] = await Promise.all([
+        healthResponse.json(),
+        settingsResponse.json(),
+        usageResponse.json()
+      ]);
       document.getElementById("healthInfo").textContent = `Health: ${healthData.status}\nModel: ${healthData.model}\nAPI key configured: ${healthData.has_api_key}`;
+      usageInfo.textContent = `Requests: ${usage.request_count} (admin ${usage.requests_by_role.admin}, user ${usage.requests_by_role.user})\nAverage tokens: ${usage.average_tokens} · Average latency: ${usage.average_latency_ms} ms`;
       systemPromptInput.value = settings.system_prompt;
       temperatureInput.value = settings.temperature;
       defaultMaxTokensInput.value = settings.default_max_tokens;
+      sessionMessageCapInput.value = settings.session_message_cap;
+      sessionTokenCapInput.value = settings.session_token_cap;
     }
 
     function closeAdmin() {
@@ -1307,8 +1570,53 @@
       return html || `<p>${formatInline(rawText)}</p>`;
     }
 
+    function safeMarkdownTitle(title) {
+      return String(title || "OmniGPT runbook")
+        .replace(/[\r\n#`]+/g, " ")
+        .trim() || "OmniGPT runbook";
+    }
+
+    function buildAssistantMarkdown(index) {
+      const answer = messages[index];
+      if (!answer || answer.role !== "assistant") return "";
+      const prompt = messages.slice(0, index).reverse().find(message => message.role === "user");
+      const title = safeMarkdownTitle(prompt?.content.split(/\r?\n/, 1)[0]);
+      return `# ${title}\n\n## Prompt\n\n${prompt?.content || "Assistant response"}\n\n## Response\n\n${answer.content.trim()}\n`;
+    }
+
+    function buildThreadMarkdown() {
+      const title = safeMarkdownTitle(activeSession.title);
+      const thread = messages.filter(message => message.content.trim()).map(message =>
+        `## ${message.role === "user" ? "User" : "OmniGPT"}\n\n${message.content.trim()}`
+      );
+      return `# ${title}\n\n${thread.join("\n\n")}\n`;
+    }
+
+    async function copyMarkdown(markdown) {
+      try {
+        await navigator.clipboard.writeText(markdown);
+        exportStatus.textContent = "Markdown copied.";
+      } catch (error) {
+        exportStatus.textContent = `Copy failed: ${error.message}`;
+      }
+    }
+
+    function downloadMarkdown(markdown, title) {
+      const slug = safeMarkdownTitle(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+      link.href = url;
+      link.download = `${slug || "omnigpt-runbook"}.md`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      exportStatus.textContent = "Markdown exported.";
+    }
+
     function renderChat() {
       tokenBadge.textContent = `Tokens: ${sessionTokensUsed} used · ~${totalTokensSaved} saved`;
+      copyThreadBtn.disabled = exportThreadBtn.disabled = messages.length === 0;
       summaryStatus.textContent = rollingSummary
         ? "Summary saved · Last 4 msgs"
         : "Window: Last 4 msgs";
@@ -1345,6 +1653,22 @@
 
         row.appendChild(meta);
         row.appendChild(bubble);
+        if (msg.role === "assistant" && msg.content.trim()) {
+          const actions = document.createElement("div");
+          actions.className = "reply-actions";
+          const copyButton = document.createElement("button");
+          copyButton.className = "btn markdown-btn";
+          copyButton.type = "button";
+          copyButton.textContent = "Copy MD";
+          copyButton.dataset.copyReply = String(idx);
+          const exportButton = document.createElement("button");
+          exportButton.className = "btn markdown-btn";
+          exportButton.type = "button";
+          exportButton.textContent = "Export .md";
+          exportButton.dataset.exportReply = String(idx);
+          actions.append(copyButton, exportButton);
+          row.appendChild(actions);
+        }
         frag.appendChild(row);
       });
 
@@ -1440,6 +1764,7 @@
           headers: { "Content-Type": "application/json" },
           signal: activeController.signal,
           body: JSON.stringify({
+            session_id: activeSessionId,
             messages: messages.slice(0, -1),
             summary: rollingSummary,
             stream: true,
@@ -1451,7 +1776,14 @@
         if (!response.ok) {
           const errText = await response.text();
           if (response.status === 401) clearAuthentication();
-          assistantMessage.content = `**Error (${response.status}):** ${errText}`;
+          let errorMessage = errText;
+          try {
+            const errorData = JSON.parse(errText);
+            errorMessage = errorData.detail?.message || errorData.detail || errorMessage;
+          } catch (_) {}
+          assistantMessage.content = response.status === 429
+            ? `**Session limit reached:** ${errorMessage}`
+            : `**Error (${response.status}):** ${errorMessage}`;
           return;
         }
 
@@ -1522,16 +1854,33 @@
     }
 
     viewport.addEventListener("click", async (e) => {
-      const btn = e.target.closest(".copy-btn");
-      if (!btn) return;
-      const code = decodeURIComponent(btn.dataset.code || "");
-      try {
-        await navigator.clipboard.writeText(code);
-        const prev = btn.textContent;
-        btn.textContent = "Copied";
-        setTimeout(() => { btn.textContent = prev; }, 1200);
-      } catch (_) {}
+      const target = e.target;
+      const codeButton = target.closest(".copy-btn");
+      if (codeButton) {
+        const code = decodeURIComponent(codeButton.dataset.code || "");
+        try {
+          await navigator.clipboard.writeText(code);
+          const previousText = codeButton.textContent;
+          codeButton.textContent = "Copied";
+          setTimeout(() => { codeButton.textContent = previousText; }, 1200);
+        } catch (_) {}
+        return;
+      }
+      const copyButton = target.closest("[data-copy-reply]");
+      if (copyButton) {
+        await copyMarkdown(buildAssistantMarkdown(Number(copyButton.dataset.copyReply)));
+        return;
+      }
+      const exportButton = target.closest("[data-export-reply]");
+      if (exportButton) {
+        const index = Number(exportButton.dataset.exportReply);
+        const markdown = buildAssistantMarkdown(index);
+        downloadMarkdown(markdown, markdown.split(/\r?\n/, 1)[0].replace(/^#\s*/, ""));
+      }
     });
+
+    copyThreadBtn.addEventListener("click", () => copyMarkdown(buildThreadMarkdown()));
+    exportThreadBtn.addEventListener("click", () => downloadMarkdown(buildThreadMarkdown(), activeSession.title));
 
     document.querySelectorAll(".prompt-chip").forEach(chip => {
       chip.addEventListener("click", () => {
@@ -1608,7 +1957,9 @@
           body: JSON.stringify({
             system_prompt: systemPromptInput.value,
             temperature: Number(temperatureInput.value),
-            default_max_tokens: Number(defaultMaxTokensInput.value)
+            default_max_tokens: Number(defaultMaxTokensInput.value),
+            session_message_cap: Number(sessionMessageCapInput.value),
+            session_token_cap: Number(sessionTokenCapInput.value)
           })
         });
         const result = await response.json();

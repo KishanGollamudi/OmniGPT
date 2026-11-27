@@ -2,7 +2,7 @@
 
 ![Authenticated OmniGPT chat UI](docs/omnigpt-ui.png)
 
-OmniGPT is a FastAPI DevOps/SRE assistant using the server-locked Groq model `openai/gpt-oss-20b`. It includes HMAC-signed bearer authentication, streamed replies, adjustable context and output-token controls, concise/detailed response modes, named browser-local chat sessions with rolling summaries, DevOps playbooks, log trimming, ten themes, and an interactive wave orb.
+OmniGPT is a FastAPI DevOps/SRE assistant using the server-locked Groq model `openai/gpt-oss-20b`. It includes HMAC-signed bearer authentication, streamed replies, adjustable context and output-token controls, concise/detailed response modes, named browser-local chat sessions with rolling summaries, DevOps playbooks, log trimming, ten themes, a 3D holographic orb, Admin usage metrics and session guardrails, and Markdown runbook copy/export.
 
 ## Configuration
 
@@ -24,8 +24,11 @@ Optional settings (also configurable in the Render dashboard):
 | `RECENT_WINDOW_MESSAGES` | `4` | Recent messages sent as full chat context |
 | `SUMMARY_TRIGGER_MESSAGES` | `8` | Message count that triggers rolling summaries |
 | `REQUEST_TIMEOUT_SECONDS` | `180` | Upstream request timeout |
+| `SESSION_MESSAGE_CAP` | `50` | User messages allowed per browser chat session |
+| `SESSION_TOKEN_CAP` | `20000` | Approximate token budget per user chat session |
 
 The browser offers Concise (450 tokens) and Detailed (1400 tokens) modes. The model and Groq endpoint are configured in the server and are not user-overridable.
+Admins can adjust the session caps in Admin settings. Usage counters and enforcement state are in memory and reset when the server restarts; admins bypass user caps.
 
 ## Run locally
 

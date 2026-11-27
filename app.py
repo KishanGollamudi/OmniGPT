@@ -28,7 +28,10 @@ AUTH_TOKEN_TTL_SECONDS = 12 * 60 * 60
 
 RECENT_WINDOW_MESSAGES = int(os.getenv("RECENT_WINDOW_MESSAGES", "4"))
 SUMMARY_TRIGGER_MESSAGES = int(os.getenv("SUMMARY_TRIGGER_MESSAGES", "8"))
+SUMMARY_MAX_TOKENS = 180
 DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "650"))
+SESSION_MESSAGE_CAP = int(os.getenv("SESSION_MESSAGE_CAP", "50"))
+SESSION_TOKEN_CAP = int(os.getenv("SESSION_TOKEN_CAP", "20000"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "180.0"))
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -46,6 +49,17 @@ SYSTEM_PROMPT = (
 ACTIVE_SYSTEM_PROMPT = SYSTEM_PROMPT
 ACTIVE_TEMPERATURE = 0.3
 ACTIVE_DEFAULT_MAX_TOKENS = DEFAULT_MAX_TOKENS
+ACTIVE_SESSION_MESSAGE_CAP = SESSION_MESSAGE_CAP
+ACTIVE_SESSION_TOKEN_CAP = SESSION_TOKEN_CAP
+SESSION_USAGE: dict[str, dict[str, int]] = {}
+USAGE_STATS: dict[str, Any] = {
+    "request_count": 0,
+    "requests_by_role": {"admin": 0, "user": 0},
+    "tokens_total": 0,
+    "token_samples": 0,
+    "latency_total_ms": 0.0,
+    "latency_samples": 0,
+}
 
 app = FastAPI(title="OmniGPT", version="2.0.0")
 
@@ -68,6 +82,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
     summary: str = ""
     stream: bool = True
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
@@ -84,6 +99,8 @@ class AdminSettings(BaseModel):
     system_prompt: str = Field(min_length=1, max_length=12000)
     temperature: float = Field(ge=0, le=2)
     default_max_tokens: int = Field(ge=1, le=8192)
+    session_message_cap: int | None = Field(default=None, ge=1, le=10000)
+    session_token_cap: int | None = Field(default=None, ge=1, le=10000000)
 
 
 def _b64url_encode(value: bytes) -> str:
@@ -219,6 +236,172 @@ def build_windowed_payload(req: ChatRequest, stream: bool) -> tuple[dict[str, An
     return payload, estimated_tokens_saved
 
 
+def reserve_session_usage(
+    req: ChatRequest,
+    role: str,
+    payload: dict[str, Any],
+) -> tuple[str, int] | None:
+    if role != "user":
+        return None
+
+    session_key = f"user:{req.session_id or 'unassigned'}"
+    state = SESSION_USAGE.setdefault(
+        session_key, {"messages": 0, "tokens": 0, "reserved_tokens": 0}
+    )
+    if state["messages"] >= ACTIVE_SESSION_MESSAGE_CAP:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "session_message_cap",
+                "message": (
+                    f"This chat reached its {ACTIVE_SESSION_MESSAGE_CAP}-message limit. "
+                    "Start a new chat or ask an admin to raise the cap."
+                ),
+            },
+        )
+
+    remaining = ACTIVE_SESSION_TOKEN_CAP - state["tokens"] - state["reserved_tokens"]
+    if remaining <= 0:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "session_token_cap",
+                "message": (
+                    f"This chat reached its {ACTIVE_SESSION_TOKEN_CAP}-token limit. "
+                    "Start a new chat or ask an admin to raise the cap."
+                ),
+            },
+        )
+
+    prompt_bytes = sum(
+        len(message["content"].encode("utf-8"))
+        for message in payload["messages"]
+    )
+    estimated_prompt_tokens = max(1, (prompt_bytes + 2) // 3)
+    summary_reservation = 0
+    if len(req.messages) >= SUMMARY_TRIGGER_MESSAGES and RECENT_WINDOW_MESSAGES > 0:
+        older_messages = req.messages[:-RECENT_WINDOW_MESSAGES]
+        transcript = "\n".join(
+            f"{message.role.upper()}: {message.content[:600]}"
+            for message in older_messages[-12:]
+        )
+        summary_prompt = (
+            "Update the running technical summary in <= 120 words. "
+            "Keep key facts, decisions, names, and open tasks; drop filler.\n\n"
+            f"Current summary:\n{req.summary or 'None'}\n\n"
+            f"New messages to fold in:\n{transcript}"
+        )
+        summary_bytes = len(
+            "You compress chat history into concise notes.".encode("utf-8")
+        ) + len(summary_prompt.encode("utf-8"))
+        summary_reservation = max(1, (summary_bytes + 2) // 3) + SUMMARY_MAX_TOKENS
+
+    output_budget = min(
+        int(payload["max_tokens"]),
+        remaining - estimated_prompt_tokens - summary_reservation,
+    )
+    if output_budget < 1:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "session_token_cap",
+                "message": (
+                    "This prompt leaves no token budget in the current chat. "
+                    "Start a new chat or ask an admin to raise the cap."
+                ),
+            },
+        )
+
+    payload["max_tokens"] = output_budget
+    reservation = estimated_prompt_tokens + output_budget + summary_reservation
+    state["messages"] += 1
+    state["reserved_tokens"] += reservation
+    return session_key, reservation
+
+
+def settle_session_usage(
+    reservation: tuple[str, int] | None,
+    usages: list[dict[str, Any] | None],
+) -> None:
+    if reservation is None:
+        return
+    session_key, reserved_tokens = reservation
+    state = SESSION_USAGE[session_key]
+    state["reserved_tokens"] = max(0, state["reserved_tokens"] - reserved_tokens)
+    actual_tokens = 0
+    has_usage = False
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        if (
+            isinstance(prompt, int)
+            and not isinstance(prompt, bool)
+            and isinstance(completion, int)
+            and not isinstance(completion, bool)
+        ):
+            actual_tokens += prompt + completion
+            has_usage = True
+    state["tokens"] += actual_tokens if has_usage else reserved_tokens
+
+
+def combine_usage(usages: list[dict[str, Any] | None]) -> dict[str, int] | None:
+    prompt_total = 0
+    completion_total = 0
+    has_usage = False
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        if (
+            isinstance(prompt, int)
+            and not isinstance(prompt, bool)
+            and isinstance(completion, int)
+            and not isinstance(completion, bool)
+        ):
+            prompt_total += prompt
+            completion_total += completion
+            has_usage = True
+    return (
+        {"prompt_tokens": prompt_total, "completion_tokens": completion_total}
+        if has_usage
+        else None
+    )
+
+
+def record_request(role: str) -> None:
+    USAGE_STATS["request_count"] += 1
+    USAGE_STATS["requests_by_role"][role] += 1
+
+
+def record_request_result(
+    usages: list[dict[str, Any] | None],
+    latency_ms: float,
+) -> None:
+    USAGE_STATS["latency_total_ms"] += latency_ms
+    USAGE_STATS["latency_samples"] += 1
+    request_tokens = 0
+    has_usage = False
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        if (
+            isinstance(prompt, int)
+            and not isinstance(prompt, bool)
+            and isinstance(completion, int)
+            and not isinstance(completion, bool)
+        ):
+            request_tokens += prompt + completion
+            has_usage = True
+    if has_usage:
+        USAGE_STATS["tokens_total"] += request_tokens
+        USAGE_STATS["token_samples"] += 1
+
+
 async def update_rolling_summary(
     client: httpx.AsyncClient,
     url: str,
@@ -226,9 +409,9 @@ async def update_rolling_summary(
     model: str,
     prior_summary: str,
     older_messages: list[dict[str, str]],
-) -> str:
+) -> tuple[str, dict[str, Any] | None]:
     if not older_messages:
-        return prior_summary
+        return prior_summary, None
 
     transcript = "\n".join(
         f"{m['role'].upper()}: {m['content'][:600]}" for m in older_messages[-12:]
@@ -248,20 +431,24 @@ async def update_rolling_summary(
         ],
         "stream": False,
         "temperature": 0.2,
+        "reasoning_effort": "low",
+        "max_tokens": SUMMARY_MAX_TOKENS,
     }
 
+    usage: dict[str, Any] | None = None
     try:
         resp = await client.post(url, headers=headers, json=body, timeout=60.0)
         resp.raise_for_status()
         data = resp.json()
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
         choices = data.get("choices") or []
         if choices:
             content = (choices[0].get("message") or {}).get("content", "").strip()
             if content:
-                return content
+                return content, usage
     except Exception:
         pass
-    return prior_summary
+    return prior_summary, usage
 
 
 @app.get("/")
@@ -322,6 +509,8 @@ async def get_admin_settings(request: Request):
         "system_prompt": ACTIVE_SYSTEM_PROMPT,
         "temperature": ACTIVE_TEMPERATURE,
         "default_max_tokens": ACTIVE_DEFAULT_MAX_TOKENS,
+        "session_message_cap": ACTIVE_SESSION_MESSAGE_CAP,
+        "session_token_cap": ACTIVE_SESSION_TOKEN_CAP,
     }
 
 
@@ -332,13 +521,20 @@ async def update_admin_settings(req: AdminSettings, request: Request):
     if not prompt:
         raise HTTPException(status_code=422, detail="System prompt cannot be empty")
     global ACTIVE_SYSTEM_PROMPT, ACTIVE_TEMPERATURE, ACTIVE_DEFAULT_MAX_TOKENS
+    global ACTIVE_SESSION_MESSAGE_CAP, ACTIVE_SESSION_TOKEN_CAP
     ACTIVE_SYSTEM_PROMPT = prompt
     ACTIVE_TEMPERATURE = req.temperature
     ACTIVE_DEFAULT_MAX_TOKENS = req.default_max_tokens
+    if req.session_message_cap is not None:
+        ACTIVE_SESSION_MESSAGE_CAP = req.session_message_cap
+    if req.session_token_cap is not None:
+        ACTIVE_SESSION_TOKEN_CAP = req.session_token_cap
     return {
         "system_prompt": ACTIVE_SYSTEM_PROMPT,
         "temperature": ACTIVE_TEMPERATURE,
         "default_max_tokens": ACTIVE_DEFAULT_MAX_TOKENS,
+        "session_message_cap": ACTIVE_SESSION_MESSAGE_CAP,
+        "session_token_cap": ACTIVE_SESSION_TOKEN_CAP,
     }
 
 
@@ -348,35 +544,68 @@ async def admin_health(request: Request):
     return await health()
 
 
+@app.get("/api/admin/usage")
+async def admin_usage(request: Request):
+    require_admin(request)
+    return {
+        "request_count": USAGE_STATS["request_count"],
+        "requests_by_role": dict(USAGE_STATS["requests_by_role"]),
+        "average_tokens": round(
+            USAGE_STATS["tokens_total"] / USAGE_STATS["token_samples"], 1
+        ) if USAGE_STATS["token_samples"] else 0,
+        "average_latency_ms": round(
+            USAGE_STATS["latency_total_ms"] / USAGE_STATS["latency_samples"], 1
+        ) if USAGE_STATS["latency_samples"] else 0,
+        "session_message_cap": ACTIVE_SESSION_MESSAGE_CAP,
+        "session_token_cap": ACTIVE_SESSION_TOKEN_CAP,
+    }
+
+
 @app.post("/api/chat/sync")
 async def chat_sync(req: ChatRequest, request: Request):
-    get_token_claims(request)
+    claims = get_token_claims(request)
+    role = claims["role"]
+    record_request(role)
+    started_at = time.perf_counter()
     url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=False)
+    try:
+        reservation = reserve_session_usage(req, role, payload)
+    except HTTPException:
+        record_request_result([], (time.perf_counter() - started_at) * 1000)
+        raise
 
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
-        data = resp.json()
-        reply = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+    usage: dict[str, Any] | None = None
+    summary_usage: dict[str, Any] | None = None
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code >= 400:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
+            data = resp.json()
+            usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+            reply = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
 
-        updated_summary = req.summary
-        if len(req.messages) >= SUMMARY_TRIGGER_MESSAGES and RECENT_WINDOW_MESSAGES > 0:
-            older = [
-                {"role": m.role, "content": m.content}
-                for m in req.messages[:-RECENT_WINDOW_MESSAGES]
-            ]
-            updated_summary = await update_rolling_summary(
-                client, url, headers, payload["model"], req.summary, older
-            )
+            updated_summary = req.summary
+            if len(req.messages) >= SUMMARY_TRIGGER_MESSAGES and RECENT_WINDOW_MESSAGES > 0:
+                older = [
+                    {"role": m.role, "content": m.content}
+                    for m in req.messages[:-RECENT_WINDOW_MESSAGES]
+                ]
+                updated_summary, summary_usage = await update_rolling_summary(
+                    client, url, headers, payload["model"], req.summary, older
+                )
 
-    return {
-        "reply": reply,
-        "summary": updated_summary,
-        "tokens_saved_est": tokens_saved,
-    }
+        return {
+            "reply": reply,
+            "summary": updated_summary,
+            "tokens_saved_est": tokens_saved,
+        }
+    finally:
+        usages = [usage, summary_usage]
+        settle_session_usage(reservation, usages)
+        record_request_result(usages, (time.perf_counter() - started_at) * 1000)
 
 
 @app.post("/api/chat")
@@ -384,14 +613,23 @@ async def chat_stream(
     req: ChatRequest,
     request: Request,
 ):
-    get_token_claims(request)
+    claims = get_token_claims(request)
+    role = claims["role"]
+    record_request(role)
+    started_at = time.perf_counter()
     url = normalize_chat_completions_url(LOCKED_ENDPOINT_URL)
     headers = build_upstream_headers()
     payload, tokens_saved = build_windowed_payload(req, stream=True)
+    try:
+        reservation = reserve_session_usage(req, role, payload)
+    except HTTPException:
+        record_request_result([], (time.perf_counter() - started_at) * 1000)
+        raise
 
     async def event_generator():
         yield f"data: {json.dumps({'meta': {'tokens_saved_est': tokens_saved}})}\n\n"
         usage: dict[str, Any] | None = None
+        summary_usage: dict[str, Any] | None = None
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as resp:
@@ -426,16 +664,20 @@ async def chat_stream(
                         {"role": m.role, "content": m.content}
                         for m in req.messages[:-RECENT_WINDOW_MESSAGES]
                     ]
-                    updated_summary = await update_rolling_summary(
+                    updated_summary, summary_usage = await update_rolling_summary(
                         client, url, headers, payload["model"], req.summary, older
                     )
 
-            usage_meta = {
-                "prompt_tokens": usage.get("prompt_tokens") if usage else None,
-                "completion_tokens": usage.get("completion_tokens") if usage else None,
+            usage_meta = combine_usage([usage, summary_usage]) or {
+                "prompt_tokens": None,
+                "completion_tokens": None,
             }
             yield f"data: {json.dumps({'done': True, 'summary': updated_summary, 'meta': usage_meta})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        finally:
+            usages = [usage, summary_usage]
+            settle_session_usage(reservation, usages)
+            record_request_result(usages, (time.perf_counter() - started_at) * 1000)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
